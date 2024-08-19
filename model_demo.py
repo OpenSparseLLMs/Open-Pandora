@@ -6,6 +6,7 @@ from transformers import PreTrainedModel, Blip2QFormerModel, AutoModelForCausalL
 from transformers import  CLIPTextConfig, CLIPTextModel
 from transformers.modeling_outputs import  BaseModelOutputWithPooling
 
+import torch.nn.functional as F
 from transformers.models.clip.modeling_clip import CLIPTextTransformer
 import sys
 from einops import rearrange
@@ -23,17 +24,20 @@ from DynamiCrafter.scripts.evaluation.inference import load_model_checkpoint, in
 from DynamiCrafter.lvdm.models.samplers.ddim import DDIMSampler
 from DynamiCrafter.lvdm.models.samplers.ddim_multiplecond import DDIMSampler as DDIMSampler_multicond
 from omegaconf import OmegaConf
-from einops import repeat
+from einops import repeat, rearrange, repeat
 from transformers import logging
 logging.set_verbosity_error()
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
+import random
+import pytorch_lightning as pl  
+import logging
+mainlogger = logging.getLogger('mainlogger')
 _make_causal_mask = AttentionMaskConverter._make_causal_mask
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 IMAGE_PREFIX_TOKEN = "[IMG_P]"
 
 
-logger = logging.get_logger(__name__)
 
 def freeze_sub_models(function):
     def wrapper(*args, **kwargs):
@@ -42,8 +46,8 @@ def freeze_sub_models(function):
             for param in model.video_model.parameters():
                 param.requires_grad = False
 
-        if model.config.use_diffusion_text_encoder and model.config.freeze_diffusion_text_encoder:
-            for param in model.diffusion_text_encoder.parameters():
+        if model.config.do_alignment:
+            for param in model.cond_stage_model.parameters():
                 param.requires_grad = False
         if model.config.use_image_callbacks:
             for param in model.diffusion_original_text_encoder.parameters():
@@ -63,7 +67,7 @@ def freeze_sub_models(function):
 
 
 
-class WorldModel(PreTrainedModel):
+class WorldModel(PreTrainedModel, pl.LightningModule):
     config_class = WorldModelConfig
     sub_models = ['video_model']
     supports_gradient_checkpointing = True
@@ -71,7 +75,8 @@ class WorldModel(PreTrainedModel):
 
     def __init__(self, config: WorldModelConfig):
         super().__init__(config)
-
+        self.log_every_t=100
+        self.logdir = 'output/log'
         if config.use_image_prefix:
             self.image_prefix = nn.Linear(config.video_model_config.hidden_size, config.image_prefix_length, bias=False)
 
@@ -95,6 +100,10 @@ class WorldModel(PreTrainedModel):
             self.diffusion_tokenizer = CLIPTokenizer.from_pretrained(config.diffusion_model_name_or_path,subfolder='tokenizer')
         if config.use_diffusion_text_encoder:
             self.diffusion_text_encoder = CLIPTextEmbeddingModel(config.diffusion_text_encoder_config)
+        if config.do_alignment:
+            model_config = OmegaConf.load(config.dynamicrafter)
+            model_config = model_config['model']['params']['cond_stage_config']
+            self.cond_stage_model = instantiate_from_config(model_config)
 
         self.post_init()
         
@@ -143,7 +152,7 @@ class WorldModel(PreTrainedModel):
         return_dict = return_dict if return_dict is not None else video_model.config.use_return_dict
 
         # Use labels to keep track of the location of image prefix tokens since image features will change the length of the sequence
-        image_prefix_token_id = self.video_model.config.vocab_size + 1 # ugly hardcode here
+        image_prefix_token_id = 32002 # ugly hardcode here
         labels = input_ids.clone()
         input_ids[input_ids.eq(image_prefix_token_id)] = 0
         input_ids, attention_mask, past_key_values, inputs_embeds, labels = video_model.prepare_inputs_labels_for_multimodal(input_ids, attention_mask, None, labels, pixel_values)
@@ -300,6 +309,7 @@ class WorldModel(PreTrainedModel):
         tokenizer: Optional[transformers.PreTrainedTokenizer] = None,
         **generate_kwargs, # max_new_tokens, guidance_scale
     ):
+        
         assert input_ids.size(0) == 1, "Currently only support batch size 1"
         past_key_values = None
         output_sequence = input_ids
@@ -319,8 +329,226 @@ class WorldModel(PreTrainedModel):
                                               noise_shape=[1, 4, self.diffusion_model.temporal_length, h//8, w//8],
                                               **generate_kwargs)
         return samples
-        
 
+    def get_input(self, x):
+        '''
+        if len(x.shape) == 3:
+            x = x[..., None]
+        x = rearrange(x, 'b h w c -> b c h w')
+        '''
+        x = x.to(memory_format=torch.contiguous_format).float()
+        return x
+    
+    def get_batch_input(
+        self,
+        video,
+        input_ids: torch.FloatTensor,
+        pixel_values: torch.FloatTensor = None,
+        diffusion_pixel_values: torch.FloatTensor = None,
+        diffusion_cond_image: torch.FloatTensor = None,
+        attention_mask: Optional[torch.LongTensor] = None,
+        frame_stride=None,
+        random_uncond=True,
+        **kwargs
+    ):
+        ## x: b c t h w
+        '''
+        'video': (1, 3, 16, 320, 512) #normalnize and reshape
+        'input_ids': (1,76)
+        'attention_mask': (1,76)
+        'pixel_values': ([1, 1, 3, 224, 224])
+        'diffusion_pixel_values': ([1, 3, 1, 320, 512])
+        'diffusion_cond_image': ([1, 1, 3, 320, 512])
+        'caption': list[str]
+        'path': list[str]
+        'fps': tensor([5.], device='cuda:0', dtype=torch.float16)
+        'frame_stride': tensor([5], device='cuda:0')
+        '''
+        assert input_ids.size(0) == 1, "Currently only support batch size 1"
+        
+        pixel_values = pixel_values[0]
+        # diffusion_pixel_values = diffusion_pixel_values[0]
+        diffusion_cond_image = diffusion_cond_image[0]
+        
+        assert input_ids[0][-1] == 32002
+        ## x: b c t h w
+        x = self.get_input(video) #([1, 3, 16, 320, 512])
+        z = self.diffusion_model.encode_first_stage(x) # ([1, 4, 16, 40, 64])
+        diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None) #([1, 77, 1024])
+        cond_emb = diffusion_conditioning[-1:] #([1, 77, 1024])
+
+        # img = videos[:,:,0] #bchw
+        cond = {}
+        ## to support classifier-free guidance, randomly drop out only text conditioning 5%, only image conditioning 5%, and both 5%.
+        if random_uncond:
+            random_num = torch.rand(x.size(0), device=x.device)
+        else:
+            random_num = torch.ones(x.size(0), device=x.device)  ## by doning so, we can get text embedding and complete img emb for inference
+        prompt_mask = rearrange(random_num < 2 * self.diffusion_model.uncond_prob, "n -> n 1 1")
+        input_mask = 1 - rearrange((random_num >= self.diffusion_model.uncond_prob).float() * (random_num < 3 * self.diffusion_model.uncond_prob).float(), "n -> n 1 1 1")
+
+        null_prompt = self.diffusion_model.get_learned_conditioning([""]) #([1, 77, 1024])
+        prompt_imb = torch.where(prompt_mask, null_prompt, cond_emb.detach())#([1, 77, 1024])
+
+        img = diffusion_cond_image[0] # ([1, 3, 320, 512])
+        img = input_mask * img # ([1, 3, 320, 512])
+        ## img: b c h w
+        img_emb = self.diffusion_model.embedder(img) #([1, 257, 1280])
+        img_emb = self.diffusion_model.image_proj_model(img_emb) #([1, 256, 1024])
+
+        if self.diffusion_model.model.conditioning_key == 'hybrid':
+            ## encode video frames x to z via a 2D encoder        
+            img_cat_cond = self.get_latent_z(self.diffusion_model, diffusion_pixel_values) #([1, 4, 16, 40, 64])
+            cond["c_concat"] = [img_cat_cond] # b c t h w
+        cond["c_crossattn"] = [torch.cat([prompt_imb, img_emb], dim=1)] ## concat in the seq_len dim
+
+
+        out = [z, cond, frame_stride]
+        
+        ''' 
+        z:(1,4,16,40,64) 
+        cond:
+            c_crossattn: (1, 356+77, 1024)
+            c_concat: (1,4,16,40,64) 
+        fs: 5
+        '''
+        return out
+    
+    def alignment_forward(
+        self,
+        video,
+        caption,
+        input_ids: torch.FloatTensor,
+        pixel_values: torch.FloatTensor = None,
+        diffusion_pixel_values: torch.FloatTensor = None,
+        diffusion_cond_image: torch.FloatTensor = None,
+        attention_mask: Optional[torch.LongTensor] = None,
+        frame_stride=None,
+        random_uncond=True,
+        **kwargs
+    ):
+        ## x: b c t h w
+        '''
+        'video': (1, 3, 16, 320, 512) #normalnize and reshape
+        'input_ids': (1,76)
+        'attention_mask': (1,76)
+        'pixel_values': ([1, 1, 3, 224, 224])
+        'diffusion_pixel_values': ([1, 3, 1, 320, 512])
+        'diffusion_cond_image': ([1, 1, 3, 320, 512])
+        'caption': list[str]
+        'path': list[str]
+        'fps': tensor([5.], device='cuda:0', dtype=torch.float16)
+        'frame_stride': tensor([5], device='cuda:0')
+        '''
+        assert input_ids.size(0) == 1, "Currently only support batch size 1"
+        
+        pixel_values = pixel_values[0]
+        # diffusion_pixel_values = diffusion_pixel_values[0]
+        diffusion_cond_image = diffusion_cond_image[0]
+        caption = caption[0]
+        assert input_ids[0][-1] == 32002
+        ## x: b c t h w
+        # x = self.get_input(video) #([1, 3, 16, 320, 512])
+        # z = self.diffusion_model.encode_first_stage(x) # ([1, 4, 16, 40, 64])
+        diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None) #([1, 77, 1024])
+        llm_cond_emb = diffusion_conditioning[-1:] #([1, 77, 1024])
+        clip_cond_emb = self.cond_stage_model(caption)
+
+        # KLDivLoss
+        kl_loss = nn.KLDivLoss(reduction='batchmean')
+
+        log_llm_cond_emb = torch.log(llm_cond_emb)
+        loss = kl_loss(log_llm_cond_emb, clip_cond_emb)
+        
+        # MSELoss
+        mse_loss = torch.nn.MSELoss()
+        
+        loss = mse_loss(llm_cond_emb, clip_cond_emb)
+
+        return loss, {"loss":loss}
+    
+
+    def shared_step(self, batch, random_uncond, **kwargs):
+
+        x, c, fs = self.get_batch_input(**batch, random_uncond=random_uncond, return_fs=True)
+        kwargs.update({"fs": fs.long()})
+        loss, loss_dict = self.diffusion_model(x, c, **kwargs)
+
+        return loss, loss_dict    
+    
+    def training_step(self, batch, batch_idx):
+
+        if not self.config.do_alignment:
+            loss, loss_dict = self.shared_step(batch, random_uncond=self.diffusion_model.classifier_free_guidance)
+
+        else:
+            loss, loss_dict = self.alignment_forward(**batch)
+
+        ## sync_dist | rank_zero_only 
+        self.log_dict(loss_dict, prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=False)
+        #self.log("epoch/global_step", self.global_step.float(), prog_bar=True, logger=True, on_step=True, on_epoch=False)
+        '''
+        if self.use_scheduler:
+            lr = self.optimizers().param_groups[0]['lr']
+            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False, rank_zero_only=True)
+        '''
+        if (batch_idx+1) % self.log_every_t == 0:
+            mainlogger.info(f"batch:{batch_idx}|epoch:{self.current_epoch} [globalstep:{self.global_step}]: loss={loss}")
+        return loss
+    
+    def configure_optimizers(self):
+        """ configure_optimizers for LatentDiffusion """
+        lr = self.config.learning_rate
+        params = list()
+        if not self.config.do_alignment:
+            params = list(self.diffusion_model.model.parameters())
+        
+        #stage 1
+        params.extend(self.image_prefix.parameters())
+        params.extend(list(self.diffusion_qformer_proj.parameters()))
+        params.extend(list(self.diffusion_qformer.parameters()))
+        params.extend(list(self.diffusion_proj.parameters()))
+        params.append(self.diffusion_query_tokens)
+        #stage 2
+        mainlogger.info(f"@Training [{len(params)}] Full Paramters.")
+        
+        # if self.cond_stage_trainable:
+        #     params_cond_stage = [p for p in self.cond_stage_model.parameters() if p.requires_grad == True]
+        #     mainlogger.info(f"@Training [{len(params_cond_stage)}] Paramters for Cond_stage_model.")
+        #     params.extend(params_cond_stage)
+        
+        # if self.image_proj_model_trainable:
+        #     mainlogger.info(f"@Training [{len(list(self.image_proj_model.parameters()))}] Paramters for Image_proj_model.")
+        #     params.extend(list(self.image_proj_model.parameters()))   
+
+        # if self.learn_logvar:
+        #     mainlogger.info('Diffusion model optimizing logvar')
+        #     if isinstance(params[0], dict):
+        #         params.append({"params": [self.logvar]})
+        #     else:
+        #         params.append(self.logvar)
+
+        ## optimizer
+        optimizer = torch.optim.AdamW(params, lr=lr)
+
+        ## lr scheduler
+        # if self.use_scheduler:
+        #     mainlogger.info("Setting up scheduler...")
+        #     lr_scheduler = self.configure_schedulers(optimizer)
+        #     return [optimizer], [lr_scheduler]
+        
+        return optimizer
+    
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
+    #     return optimizer
+
+    @torch.no_grad()
+    def log_images(self, batch, sample=True, ddim_steps=50, ddim_eta=1., plot_denoise_rows=False, \
+                    unconditional_guidance_scale=1.0, mask=None, **kwargs):
+        """ log images for LatentVisualDiffusion """
+        return {"image":batch["pixel_values"]}
+    
 class CLIPTextEmbeddingTransformer(CLIPTextTransformer):
     def forward(
         self,

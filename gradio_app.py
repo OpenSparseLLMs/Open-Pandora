@@ -14,7 +14,7 @@ if args.ckpt_path:
 else:
     repo_id = find_latest_checkpoint()
 ckpt_name = repo_id.split('/')[-1]
-print(f'Load ckpt: {ckpt_name}')
+
 if args.debug:
     model = None
     processor = {
@@ -24,6 +24,14 @@ if args.debug:
     }
 else:
     model, processor = load_wm(repo_id =repo_id)
+    model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
+    # pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/WorldModel/Pandora/output/ckp_align/checkpoints/epoch=0-step=400000.ckpt/checkpoint/mp_rank_00_model_states.pt'
+    # model_state = torch.load(pretrained_ckpt)['module']
+    # model_state = {k.replace('_forward_module.',''):v for k,v in model_state.items()}
+    # model.load_state_dict(model_state, strict=False)
+    # del model_state
+    # torch.save(model.state_dict(), '/mnt/petrelfs/tianjie/projects/WorldModel/Pandora/models/stage1/pytorch_model.bin')
+    # import pdb;pdb.set_trace()
 chatwm = ChatWM(model,processor)
 
 
@@ -78,8 +86,7 @@ with demo:
                 examples=[
                     ['examples/car.png', 'The car moves forward.'],
                     ['examples/bench.png', 'Wind flows the leaves.'],
-                    ['examples/mountain.png', 'The sky gets dark.'],
-                    # ['examples/red_car.png', 'Explosion happens.'],
+                    ['examples/red_car.png', 'Explosion happens.'],
                 ],
                 inputs=[image_input, text_input, ddim_steps, fs, 
                         n_samples,unconditional_guidance_scale, ddim_eta]
@@ -104,4 +111,4 @@ with demo:
                                                       n_samples,unconditional_guidance_scale, ddim_eta, num_round], outputs=[video_output_0,round2_button,round3_button,round4_button,round5_button])
     clear_button.click(gradio_reset,outputs=total_output)
 demo.queue()
-demo.launch(share=True)
+demo.launch(share=False, server_name='0.0.0.0', server_port=10040)

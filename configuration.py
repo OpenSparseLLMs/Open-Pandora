@@ -56,9 +56,6 @@ class WorldModelConfig(PretrainedConfig):
         self.diffusion_text_encoder_config = CLIPTextConfig(**diffusion_text_encoder_config)
             
         self.do_alignment = do_alignment
-        if do_alignment:
-            if not use_diffusion_text_encoder:
-                raise ValueError("do_alignment requires use_diffusion_text_encoder to be True")
 
         self.tie_word_embeddings = self.video_model_config.tie_word_embeddings
         self.is_encoder_decoder = self.video_model_config.is_encoder_decoder

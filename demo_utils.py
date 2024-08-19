@@ -43,7 +43,7 @@ def dynamic_resize(img):
 class ChatWM:
     def __init__(self, model, processor):
         self.model = model
-        self.image_processer = processor['image_processer']
+        self.image_processor = processor['image_processor']
         self.diffusion_image_processor = processor['diffusion_image_processor']
         self.tokenizer = processor['tokenizer']
         self.generate_kwargs =  {
@@ -78,13 +78,14 @@ class ChatWM:
         if self.model == None: # debug mode
             return self.video_path[0]
          
-        self.text = self.tokenizer.bos_token + "<image> " + text_input + "[IMG_P]" * 64
-        
+        self.text = self.tokenizer.bos_token + "<image>" + text_input + "[IMG_P]" * 64
+
         if type(image) == np.ndarray:
             image = Image.fromarray(image)
         batch = self.tokenizer(self.text, return_tensors="pt", add_special_tokens=False)
         batch.update(self.process_img(image))
         batch = {k: v.to(torch_device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+        
         videos = self.model.generate(**batch,
                             tokenizer=self.tokenizer,
                             **self.generate_kwargs)
@@ -231,7 +232,7 @@ class ChatWM:
 
     
     def process_img(self, image):
-        pixel_values = self.image_processer(images=image, return_tensors="pt").pixel_values.to(torch_device)
+        pixel_values = self.image_processor(images=image, return_tensors="pt").pixel_values.to(torch_device)
         diffusion_pixel_values = self.diffusion_image_processor(dynamic_resize(image).convert('RGB')).unsqueeze(1)
         diffusion_cond_image = diffusion_pixel_values.unsqueeze(0)[:, :, 0]
         return {'pixel_values':pixel_values.bfloat16(), 'diffusion_pixel_values':diffusion_pixel_values.bfloat16(), 'diffusion_cond_image':diffusion_cond_image.bfloat16()}
@@ -240,7 +241,7 @@ class ChatWM:
         new_images = videos.squeeze(0)[0].detach().permute((1, 0, 2, 3)).clamp(-1., 1.).to(torch.float32)
         new_images = (new_images + 1.) / 2.
         new_pil_images = [transforms.functional.to_pil_image(new_image, mode='RGB') for new_image in new_images]
-        new_pixel_values = self.image_processer(images=new_pil_images, return_tensors="pt").pixel_values.to(torch_device)
+        new_pixel_values = self.image_processor(images=new_pil_images, return_tensors="pt").pixel_values.to(torch_device)
         pixel_values = torch.cat((pixel_values, new_pixel_values), dim=0)
         diffusion_pixel_values = [self.diffusion_image_processor(dynamic_resize(new_image).convert('RGB')) for new_image in new_pil_images[-4:]]
         diffusion_pixel_values = torch.stack(diffusion_pixel_values, dim=1)
@@ -282,26 +283,29 @@ def load_wm(repo_id,model=None):
     ckpt_name = repo_id.split('/')[-1]
     print(f"Start to load model, current ckpt is: {ckpt_name}")
     config = WorldModelConfig.from_pretrained(repo_id)
-    config.reset_training_args(do_alignment=False,
-                           dynamicrafter='./DynamiCrafter/configs/inference_512_v1.0.yaml',
-                           )
+    # config.reset_training_args(do_alignment=False,
+    #                        dynamicrafter='./DynamiCrafter/configs/inference_512_v1.0.yaml',
+    #                        )
     if model == None:
         model = WorldModel.from_pretrained(repo_id, config=config, ignore_mismatched_sizes=True)
-        model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
+        # model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
     # model loaded
     
     # load image processors
-    image_processer = model.video_model.get_vision_tower().image_processor
+    image_processor = model.video_model.get_vision_tower().image_processor
     diffusion_image_processor= transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
     # load tokenizer 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
+    tokenizer.add_tokens(["<img_s>"], special_tokens=True)
+    tokenizer.add_tokens(["<image>"], special_tokens=True)
+    tokenizer.add_tokens(["[IMG_P]"], special_tokens=True)
     tokenizer.image_start_token_id = tokenizer.convert_tokens_to_ids("<img_s>")
     tokenizer.image_token_id = tokenizer.convert_tokens_to_ids("<image>")
     tokenizer.image_prefix_token_id = tokenizer.convert_tokens_to_ids("[IMG_P]")
     processor = {
-        'image_processer':image_processer,
+        'image_processor':image_processor,
         'diffusion_image_processor':diffusion_image_processor,
         'tokenizer':tokenizer
     }
