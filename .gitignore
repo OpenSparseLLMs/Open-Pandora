@@ -1,0 +1,7 @@
+*.pyc
+__pycache__/
+*.log
+log/
+.vscode
+output/
+video_output/
