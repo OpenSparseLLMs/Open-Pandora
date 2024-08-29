@@ -8,6 +8,10 @@ import gradio as gr
 from demo_utils import *
 args = parse_args()
 torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+# import debugpy
+
+# debugpy.listen(address=('0.0.0.0',6765))
+# debugpy.wait_for_client()
 
 if args.ckpt_path:
     repo_id = args.ckpt_path
@@ -25,11 +29,11 @@ if args.debug:
 else:
     model, processor = load_wm(repo_id =repo_id)
     model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-    # pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/WorldModel/Pandora/output/ckp_align/checkpoints/epoch=0-step=400000.ckpt/checkpoint/mp_rank_00_model_states.pt'
-    # model_state = torch.load(pretrained_ckpt)['module']
-    # model_state = {k.replace('_forward_module.',''):v for k,v in model_state.items()}
-    # model.load_state_dict(model_state, strict=False)
-    # del model_state
+    pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/WorldModel/Pandora/models/stage1-600000/mp_rank_00_model_states.pt'
+    model_state = torch.load(pretrained_ckpt)['module']
+    model_state = {k.replace('_forward_module.',''):v for k,v in model_state.items()}
+    model.load_state_dict(model_state, strict=False)
+    del model_state
     # torch.save(model.state_dict(), '/mnt/petrelfs/tianjie/projects/WorldModel/Pandora/models/stage1/pytorch_model.bin')
     # import pdb;pdb.set_trace()
 chatwm = ChatWM(model,processor)

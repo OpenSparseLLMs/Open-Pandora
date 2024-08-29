@@ -117,7 +117,7 @@ model:
         video_length: 16
 
 data:
-  data_dir: /mnt/petrelfs/tianjie/projects/Pandora/datasets/
+  data_dir: /mnt/petrelfs/tianjie/projects/Datasets
   meta_path: /mnt/petrelfs/share_data/maxin/datasets/webvid/aes_4plus_sub_files_128/
   video_length: 16
   frame_stride: 6
@@ -134,7 +134,7 @@ lightning:
   trainer:
     benchmark: True
     accumulate_grad_batches: 2
-    max_steps: 10000000
+    max_steps: 1000000
     # logger
     log_every_n_steps: 50
     # val
@@ -146,7 +146,7 @@ lightning:
     model_checkpoint:
       target: pytorch_lightning.callbacks.ModelCheckpoint
       params:
-        every_n_train_steps: 200000 #1000
+        every_n_train_steps: 10000 #1000
         filename: "{epoch}-{step}"
         save_weights_only: True
         save_top_k: 1

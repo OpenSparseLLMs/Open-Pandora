@@ -501,7 +501,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         params = list()
         if not self.config.do_alignment:
             params = list(self.diffusion_model.model.parameters())
-            # params = list(self.video_model.model.parameters())
+        
         #stage 1
         params.extend(self.image_prefix.parameters())
         params.extend(list(self.diffusion_qformer_proj.parameters()))

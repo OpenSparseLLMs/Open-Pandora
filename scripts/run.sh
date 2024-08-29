@@ -13,7 +13,7 @@ HOST_GPU_NUM=4
 config_file=scripts/config.yaml
 
 # save root dir for logs, checkpoints, tensorboard record, etc.
-save_root="output/ckp_align"
+save_root="output/ckp_s1_mira"
 
 mkdir -p $save_root/$name
 
