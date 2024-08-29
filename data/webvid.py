@@ -117,7 +117,7 @@ class WebVid(Dataset):
     def _load_metadata(self):
         if(os.path.isdir(self.meta_path)):
             dataframes = []
-            for filename in os.listdir(self.meta_path):
+            for filename in reversed(os.listdir(self.meta_path)):
                 if filename.endswith('.csv'):
                     # 构建完整的文件路径
                     file_path = os.path.join(self.meta_path, filename)

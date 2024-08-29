@@ -13,11 +13,12 @@ from utils.utils_train import set_logger, init_workspace, load_checkpoints
 from pytorch_lightning import Trainer
 from data.webvid import WebVid
 from data.panda import Panda
+from data.mira import Mira
 from demo_utils import *
 from utils.utils_data import DataModuleFromConfig
-import debugpy
+# import debugpy
 
-# debugpy.listen(address=('0.0.0.0',6767))
+# debugpy.listen(address=('0.0.0.0',6765))
 # debugpy.wait_for_client()
 
 def get_parser(**parser_kwargs):

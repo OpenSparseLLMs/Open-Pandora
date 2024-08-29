@@ -8,18 +8,18 @@ export LD_LIBRARY_PATH=/mnt/petrelfs/share/cuda-11.8/lib64
 echo $CUDA_VISIBLE_DEVICES
 # eval $activate_cuda118
 # source activate dynamicrafter
-HOST_GPU_NUM=1
+HOST_GPU_NUM=4
 # args
 config_file=scripts/config_multi.yaml
 
 # save root dir for logs, checkpoints, tensorboard record, etc.
-save_root="output/ckp_stage2"
+save_root="output/ckp_stage2v2"
 
 mkdir -p $save_root/$name
 
 ## run
 python3 -m torch.distributed.launch \
---nproc_per_node=$HOST_GPU_NUM --nnodes=1 --master_addr=127.0.0.1 --master_port=10042 --node_rank=0 \
+--nproc_per_node=$HOST_GPU_NUM --nnodes=1 --master_addr=127.0.0.1 --master_port=10041 --node_rank=0 \
 trainer.py \
 --model_path /mnt/petrelfs/tianjie/projects/WorldModel/Pandora/models/Pandora-7B \
 --base $config_file \
