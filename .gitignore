@@ -10,4 +10,6 @@ scripts/
 video_output/*
 Open-Pandora/
 data/webvid_origin.py
+data/mira.py
+data/panda.py
 mp42gif.py

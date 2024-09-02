@@ -42,7 +42,20 @@ def get_trainer_callbacks(lightning_config, config, logdir, ckptdir, logger):
                 "verbose": True,
                 "save_last": False,
             }
+<<<<<<< HEAD
         }, 
+=======
+        },
+        "batch_logger": {
+            "target": "callbacks.ImageLogger",
+            "params": {
+                "save_dir": logdir,
+                "batch_frequency": 1000,
+                "max_images": 4,
+                "clamp": True,
+            }
+        },    
+>>>>>>> 7a037fe943d19aea81ad229b59536a43452ac68c
         "learning_rate_logger": {
             "target": "pytorch_lightning.callbacks.LearningRateMonitor",
             "params": {
@@ -56,7 +69,11 @@ def get_trainer_callbacks(lightning_config, config, logdir, ckptdir, logger):
     }
 
     ## optional setting for saving checkpoints
+<<<<<<< HEAD
     monitor_metric = check_config_attribute(config, "monitor")
+=======
+    monitor_metric = check_config_attribute(config.model.params, "monitor")
+>>>>>>> 7a037fe943d19aea81ad229b59536a43452ac68c
     if monitor_metric is not None:
         mainlogger.info(f"Monitoring {monitor_metric} as checkpoint metric.")
         default_callbacks_cfg["model_checkpoint"]["params"]["monitor"] = monitor_metric
