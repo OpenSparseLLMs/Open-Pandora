@@ -24,6 +24,7 @@ class WorldModelConfig(PretrainedConfig):
             image_prefix_length=10,
             train_diffusion_cross_attn=False,
             do_alignment=False,
+            learning_rate=1e-5,
             use_image_callbacks=True,
             use_image_tokenizer=False,
             image_vocab_size=1024,
@@ -104,7 +105,7 @@ class WorldModelConfig(PretrainedConfig):
         self.use_controlnet = use_controlnet
         self.use_instructpix2pix = use_instructpix2pix
         self.freeze_diffusion_qformer = freeze_diffusion_qformer
-
+        self.learning_rate = learning_rate
 
         self.use_flash_attn = use_flash_attn
 
@@ -123,6 +124,7 @@ class WorldModelConfig(PretrainedConfig):
         use_dynamicrafter=None,
         dynamicrafter_ckpt=None,
         dynamicrafter=None,
+        learning_rate=None,
         use_flash_attn=None,
     ):
         if freeze_video_model is not None:
@@ -152,7 +154,9 @@ class WorldModelConfig(PretrainedConfig):
         if self.do_alignment and not do_alignment:
             self.diffusion_model_hf_initialized = True
             self.do_alignment = do_alignment
-            
+        if self.learning_rate is not None:
+            self.learning_rate = learning_rate
+
         if use_flash_attn is not None:
             self.use_flash_attn = use_flash_attn
 
