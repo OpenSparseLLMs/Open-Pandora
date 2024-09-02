@@ -4,7 +4,7 @@ __pycache__/
 log/
 .vscode
 output/
-tmp.txt/
+tmp.txt
 models/
 scripts/
 video_output/*
