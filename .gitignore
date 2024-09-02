@@ -1,0 +1,13 @@
+*.pyc
+__pycache__/
+*.log
+log/
+.vscode
+output/
+tmp.txt/
+models/
+scripts/
+video_output/*
+Open-Pandora/
+data/webvid_origin.py
+mp42gif.py
