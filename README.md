@@ -18,10 +18,10 @@ You can control the model in real-time using text, currently supporting 5 rounds
 
 | **2s 320×512** | **2s 320×512** | **2s 320×512** |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img src="assets/examples/leaf.gif" width="240"> | <img src="assets/examples/red_car.gif" width="240"> | <img src="assets/examples/landspace.gif" width="240"> |
-| Wind flows the leaves. | The red car moves along the path. | green hills of tuscany, italy, time-lapse. |
-| <img src="assets/examples/car.gif" width="240"> | <img src="assets/examples/fire.gif" width="240"> | <img src="assets/examples/pour_honey.gif" width="240"> |
-| The car moves forward. | a bonfire is lit in the middle of a field. | pouring honey onto some slices of bread. |
+| <img src="assets/examples/leaf.gif" width="250"> | <img src="assets/examples/red_car.gif" width="250"> | <img src="assets/examples/landspace.gif" width="250"> |
+| Wind flows the leaves. | The red car moves along the path. | Green hills of tuscany, italy, time-lapse. |
+| <img src="assets/examples/car.gif" width="250"> | <img src="assets/examples/fire.gif" width="250"> | <img src="assets/examples/pour_honey.gif" width="250"> |
+| The car moves forward. | A bonfire is lit in the middle of a field. | Pouring honey onto some slices of bread. |
 
 ## News
 - __[2024/09/02]__ We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
