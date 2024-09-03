@@ -3,7 +3,7 @@
 </p>
 <div align="center">
     <a href="https://github.com/OpenSparseLLMs/Open-Pandora"><img src="https://img.shields.io/github/stars/OpenSparseLLMs/Open-Pandora?style=social"></a>
-    <a href="https://huggingface.co/Tuyabei/Open-Pandora"><img src="https://img.shields.io/badge/%F0%9F%A4%97HF-Model-blue"></a>
+    <a href="https://huggingface.co/Tuyabei/Open-Pandora"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue"></a>
 </div>
 
 <h2 align="center"> Open-Pandora: An Open Source Pandora Replication</h2>
