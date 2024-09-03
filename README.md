@@ -18,9 +18,9 @@ You can control the model in real-time using text, currently supporting 5 rounds
 
 | **2s 320×512** | **2s 320×512** | **2s 320×512** |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img src="assets/examples/leaf.gif" width="256"> | <img src="assets/examples/red_car.gif" width="256"> | <img src="assets/examples/landspace.gif" width="256"> |
+| <img src="assets/examples/leaf.gif" width="240"> | <img src="assets/examples/red_car.gif" width="240"> | <img src="assets/examples/landspace.gif" width="240"> |
 | Wind flows the leaves. | The red car moves along the path. | green hills of tuscany, italy, time-lapse. |
-| <img src="assets/examples/car.gif" width="256"> | <img src="assets/examples/fire.gif" width="256"> | <img src="assets/examples/pour_honey.gif" width="256"> |
+| <img src="assets/examples/car.gif" width="240"> | <img src="assets/examples/fire.gif" width="240"> | <img src="assets/examples/pour_honey.gif" width="240"> |
 | The car moves forward. | a bonfire is lit in the middle of a field. | pouring honey onto some slices of bread. |
 
 ## News
