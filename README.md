@@ -3,7 +3,7 @@
 </p>
 <div align="center">
     <a href="https://github.com/OpenSparseLLMs/Open-Pandora"><img src="https://img.shields.io/github/stars/OpenSparseLLMs/Open-Pandora?style=social"></a>
-    <a href="https://huggingface.co/Tuyabei/Open-Pandora"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Gradio Demo-blue"></a>
+    <a href="https://huggingface.co/Tuyabei/Open-Pandora"><img src="https://img.shields.io/badge/%F0%9F%A4%97HF-Model-blue"></a>
 </div>
 
 <h2 align="center"> Open-Pandora: An Open Source Pandora Replication</h2>
@@ -16,14 +16,12 @@ Based on the [maitrix-org/Pandora](https://github.com/maitrix-org/Pandora) proje
 ## Demo
 You can control the model in real-time using text, currently supporting 5 rounds of autoregressive prediction to generate 10-second videos. Alternatively, you can generate a single video with the following effects:
 
-
-| **2s 320×512**                                                                                                                                      | **2s 320×512**                                                                                                                                      | **2s 320×512**                                                                                                                                      |
+| **2s 320×512** | **2s 320×512** | **2s 320×512** |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [<img src="assets/examples/leaf.gif" width="">]() | [<img src="assets/examples/red_car.gif" width="">]() | [<img src="assets/examples/landspace.gif" width="">]() |
-| Wind flows the leaves. | The red car moves along the path.  | green hills of tuscany, italy, time-lapse. |
-| [<img src="assets/examples/car.gif" width="">]() | [<img src="assets/examples/fire.gif" width="">]() | [<img src="assets/examples/pour_honey.gif" width="">]() |
+| <img src="assets/examples/leaf.gif" width="320"> | <img src="assets/examples/red_car.gif" width="320"> | <img src="assets/examples/landspace.gif" width="320"> |
+| Wind flows the leaves. | The red car moves along the path. | green hills of tuscany, italy, time-lapse. |
+| <img src="assets/examples/car.gif" width="320"> | <img src="assets/examples/fire.gif" width="320"> | <img src="assets/examples/pour_honey.gif" width="320"> |
 | The car moves forward. | a bonfire is lit in the middle of a field. | pouring honey onto some slices of bread. |
-
 
 ## News
 - __[2024/09/02]__ We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
