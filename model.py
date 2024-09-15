@@ -1,5 +1,6 @@
 import torch
 import uuid
+from peft import get_peft_model, LoraConfig, TaskType
 import numpy as np
 import torchvision
 from PIL import Image
@@ -174,6 +175,8 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         self.post_init()
         
         self.video_model = AutoModelForCausalLM.from_pretrained(config.video_model_name_or_path, config=video_model_config)
+        lora_config = LoraConfig(peft_type=TaskType.CAUSAL_LM,r=64,lora_alpha=16,lora_dropout=0.05)
+        self.video_model = get_peft_model(self.video_model,lora_config,adapter_name="llm")
         for module in self.video_model.modules():
             module._is_hf_initialized = True
 
@@ -221,21 +224,21 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         labels = input_ids.clone()
         input_ids[input_ids.eq(image_prefix_token_id)] = 0
         input_ids, attention_mask, past_key_values, inputs_embeds, labels = video_model.prepare_inputs_labels_for_multimodal(input_ids, attention_mask, None, labels, pixel_values)
-        
+        bs, seq_len = labels.shape
         # print('11 normal', flush=True)
-        if self.config.use_image_prefix:
-            bs, seq_len = labels.shape
-            labels = labels.reshape(-1)
-            image_prefix_mask = labels.eq(image_prefix_token_id)
-            inputs_embeds = inputs_embeds.reshape(bs * seq_len, -1)
+        # if self.config.use_image_prefix:
+        #     bs, seq_len = labels.shape
+        #     labels = labels.reshape(-1)
+        #     image_prefix_mask = labels.eq(image_prefix_token_id)
+        #     inputs_embeds = inputs_embeds.reshape(bs * seq_len, -1)
             
  
-            image_num = image_prefix_mask.sum().item() / self.config.image_prefix_length
-            assert int(image_num) == image_num
-            image_prefix_embeddings = self.image_prefix.weight.repeat(int(image_num), 1)
+        #     image_num = image_prefix_mask.sum().item() / self.config.image_prefix_length
+        #     assert int(image_num) == image_num
+        #     image_prefix_embeddings = self.image_prefix.weight.repeat(int(image_num), 1)
             
-            inputs_embeds[image_prefix_mask] = image_prefix_embeddings
-            inputs_embeds = inputs_embeds.reshape(bs, seq_len, -1)
+        #     inputs_embeds[image_prefix_mask] = image_prefix_embeddings
+        #     inputs_embeds = inputs_embeds.reshape(bs, seq_len, -1)
         
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
 
@@ -253,11 +256,10 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         # print(f'13 normal {outputs[0].shape}', flush=True)
 
         output_hidden_states = outputs[0]
+        img_feat_num = self.config.image_prefix_length # if self.config.use_image_prefix else self.config.num_query_tokens
         #--------------------------------------------------------------------------------------------------------------------------------------------------------------------
         output_hidden_states = output_hidden_states.reshape(bs * seq_len, -1)
-        image_outputs_embeds = output_hidden_states[image_prefix_mask][diffusion_tgt_mask]
-        diffusion_loss = None
-        img_feat_num = self.config.image_prefix_length # if self.config.use_image_prefix else self.config.num_query_tokens
+        image_outputs_embeds = output_hidden_states[-img_feat_num:][diffusion_tgt_mask]
         diffusion_conditioning = image_outputs_embeds.view(-1, img_feat_num, self.config.video_model_config.hidden_size)
         diffusion_conditioning = self.diffusion_qformer_proj(diffusion_conditioning)
         
@@ -531,24 +533,25 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
     def configure_optimizers(self):
         
         lr = self.config.learning_rate
-        params = list()
-        if not self.config.do_alignment:
-            params = list(self.diffusion_model.model.parameters())
+        trainable_params = [param for param in self.video_model.parameters() if param.requires_grad]
+        # params = list()
+        # if not self.config.do_alignment:
+        #     params = list(self.diffusion_model.model.parameters())
 
-            # 只保留包含"2.transformer_blocks."的参数
-            # params = [param for name, param in all_params if "1.transformer_blocks." in name]
-            # params = list(self.diffusion_model.model.parameters())
-            # params.extend(list(self.diffusion_model.image_proj_model.parameters())) 
-            # params = list(self.video_model.model.parameters())
+        #     # 只保留包含"2.transformer_blocks."的参数
+        #     # params = [param for name, param in all_params if "1.transformer_blocks." in name]
+        #     # params = list(self.diffusion_model.model.parameters())
+        #     # params.extend(list(self.diffusion_model.image_proj_model.parameters())) 
+        #     # params = list(self.video_model.model.parameters())
 
-        params.append(self.diffusion_query_tokens)
-        params.extend(self.image_prefix.parameters())
-        params.extend(list(self.diffusion_proj.parameters()))
-        params.extend(list(self.diffusion_qformer.parameters()))
-        params.extend(list(self.diffusion_qformer_proj.parameters()))
+        # params.append(self.diffusion_query_tokens)
+        # params.extend(self.image_prefix.parameters())
+        # params.extend(list(self.diffusion_proj.parameters()))
+        # params.extend(list(self.diffusion_qformer.parameters()))
+        # params.extend(list(self.diffusion_qformer_proj.parameters()))
         
         ## optimizer
-        optimizer = torch.optim.AdamW(params, lr=lr)
+        optimizer = torch.optim.AdamW(trainable_params, lr=lr)
 
         ## lr scheduler
         # if self.use_scheduler:
