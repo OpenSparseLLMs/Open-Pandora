@@ -7,6 +7,7 @@ output/
 tmp.txt
 models/
 scripts/
+local/
 video_output/*
 Open-Pandora/
 data/webvid_origin.py
