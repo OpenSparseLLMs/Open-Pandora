@@ -103,14 +103,11 @@ def reset_button():
 
 
 args = parse_args()
-<<<<<<< HEAD
-=======
 torch_device = "cuda" if torch.cuda.is_available() else "cpu"
 # import debugpy
 
 # debugpy.listen(address=('0.0.0.0',6765))
 # debugpy.wait_for_client()
->>>>>>> 7a037fe943d19aea81ad229b59536a43452ac68c
 
 if args.ckpt_path:
     repo_id = args.ckpt_path
@@ -128,7 +125,7 @@ if args.debug:
 else:
     model, processor = load_wm(repo_id =repo_id)
     model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-    pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/WorldModel/Pandora/models/stage1-600000/mp_rank_00_model_states.pt'
+    pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/Pandora/output/finetune/checkpoints/epoch=7-step=20000.ckpt/checkpoint/mp_rank_00_model_states.pt'
     model_state = torch.load(pretrained_ckpt)['module']
     model_state = {k.replace('_forward_module.',''):v for k,v in model_state.items()}
     model.load_state_dict(model_state, strict=False)
@@ -214,9 +211,4 @@ with demo:
                                                       n_samples,unconditional_guidance_scale, ddim_eta, num_round], outputs=[video_output_0,round2_button,round3_button,round4_button,round5_button])
     clear_button.click(gradio_reset,outputs=total_output)
 demo.queue()
-<<<<<<< HEAD
-# demo.launch(share=True)
 demo.launch(share=False, server_name='0.0.0.0', server_port=10040)
-=======
-demo.launch(share=False, server_name='0.0.0.0', server_port=10040)
->>>>>>> 7a037fe943d19aea81ad229b59536a43452ac68c
