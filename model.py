@@ -59,7 +59,7 @@ def load_wm(repo_id,training_args=None, model=None):
     else:
         config.reset_training_args(
             do_alignment=False,
-            dynamicrafter='./DynamiCrafter/configs/inference_512_v1.0.yaml',
+            dynamicrafter='./DynamiCrafter/configs/inference_1024_v1.0.yaml',
             )
         
     if model == None:
