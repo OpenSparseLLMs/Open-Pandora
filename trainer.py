@@ -10,173 +10,104 @@ sys.path.append('./DynamiCrafter')
 from DynamiCrafter.scripts.evaluation.inference import load_model_checkpoint, instantiate_from_config
 from utils.utils_train import get_trainer_callbacks, get_trainer_logger, get_trainer_strategy
 from utils.utils_train import set_logger, init_workspace, load_checkpoints
-from pytorch_lightning import Trainer
-from data.webvid import WebVid
-from model import load_wm
 from utils.utils_data import DataModuleFromConfig
+from data.webvid_bot3 import Vimeo
+from data.openvid_s3 import OpenVid
+from model import load_wm
+# import debugpy
+# debugpy.listen(address=('0.0.0.0',7678))
+# debugpy.wait_for_client()
 
+torch.set_float32_matmul_precision('medium')
 
 def get_parser(**parser_kwargs):
     parser = argparse.ArgumentParser(**parser_kwargs)
     parser.add_argument("--seed", "-s", type=int, default=20230211, help="seed for seed_everything")
     parser.add_argument("--name", "-n", type=str, default="", help="experiment name, as saving folder")
-
     parser.add_argument("--base", "-b", nargs="*", metavar="base_config.yaml", help="paths to base configs. Loaded from left-to-right. "
                             "Parameters can be overwritten or added with command-line options of the form `--key value`.", default=list())
     parser.add_argument("--model_path", "-m", type=str, default="", help="pretrained model")
-    
     parser.add_argument("--train", "-t", action='store_true', default=False, help='train')
     parser.add_argument("--val", "-v", action='store_true', default=False, help='val')
     parser.add_argument("--test", action='store_true', default=False, help='test')
-
     parser.add_argument("--logdir", "-l", type=str, default="logs", help="directory for logging dat shit")
     parser.add_argument("--auto_resume", action='store_true', default=False, help="resume from full-info checkpoint")
     parser.add_argument("--auto_resume_weight_only", action='store_true', default=False, help="resume from weight-only checkpoint")
     parser.add_argument("--debug", "-d", action='store_true', default=False, help="enable post-mortem debugging")
     parser.add_argument("--do_alignment", action='store_true', default=False, help="whether or not you do alignment training")
-
-
-    return parser
     
-def get_nondefault_trainer_args(args):
-    parser = argparse.ArgumentParser()
-    parser = Trainer.add_argparse_args(parser)
-    default_trainer_args = parser.parse_args([])
-    return sorted(k for k in vars(default_trainer_args) if getattr(args, k) != getattr(default_trainer_args, k))
+    return parser
 
-def main():
-    now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    # local_rank = int(os.environ.get('LOCAL_RANK'))
-    global_rank = 0
-    num_rank = 1
-
-    parser = get_parser()
-    ## Extends existing argparse by default Trainer attributes
-    parser = Trainer.add_argparse_args(parser)
-    args, unknown = parser.parse_known_args()
-    ## disable transformer warning
+def setup_environment(args):
     transf_logging.set_verbosity_error()
     seed_everything(args.seed)
+    workdir, ckptdir, cfgdir, loginfo = init_workspace(args.name, args.logdir, OmegaConf.create(), {}, rank=0)
+    logger = set_logger(logfile=os.path.join(loginfo, f'log_0:{datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")}.txt'))
+    return workdir, ckptdir, cfgdir, loginfo, logger
 
-    ## yaml configs: "model" | "data" | "lightning"
+def configure_trainer(args, lightning_config, workdir, ckptdir, logger):
+    trainer_config = lightning_config.get("trainer", OmegaConf.create())
+    callback_cfg = get_trainer_callbacks(lightning_config, OmegaConf.create(), workdir, ckptdir, logger)
+
+    trainer_kwargs = {
+        "num_sanity_val_steps": 0,
+        "logger": instantiate_from_config(get_trainer_logger(lightning_config, workdir, args.debug)),
+        "callbacks":  [instantiate_from_config(callback_cfg[k]) for k in callback_cfg],
+        "strategy": get_trainer_strategy(lightning_config),
+        'precision': lightning_config.get('precision', 32),
+        "sync_batchnorm": False,
+    }
+    return Trainer(**trainer_config, **trainer_kwargs)
+
+def load_and_configure_model(config, args):
+    model_config = config.pop("model", OmegaConf.create())
+    model, processor = load_wm(repo_id=args.model_path, training_args=model_config)
+    return model, processor
+
+def load_and_configure_data(config, processor, batch_size):
+    dataset = OpenVid(processor=processor, **config.data)
+    data_module = DataModuleFromConfig(batch_size=batch_size, train=dataset, num_workers=config.data.num_workers)
+    return data_module
+
+def main():
+    parser = get_parser()
+    args, unknown = parser.parse_known_args()
     configs = [OmegaConf.load(cfg) for cfg in args.base]
     cli = OmegaConf.from_dotlist(unknown)
     config = OmegaConf.merge(*configs, cli)
     lightning_config = config.pop("lightning", OmegaConf.create())
-    trainer_config = lightning_config.get("trainer", OmegaConf.create()) 
 
-    ## setup workspace directories
-    workdir, ckptdir, cfgdir, loginfo = init_workspace(args.name, args.logdir, config, lightning_config, global_rank)
-    logger = set_logger(logfile=os.path.join(loginfo, 'log_%d:%s.txt'%(global_rank, now)))
-    logger.info("@lightning version: %s [>=1.8 required]"%(pl.__version__))  
+    workdir, ckptdir, cfgdir, loginfo, logger = setup_environment(args)
+    trainer = configure_trainer(args, lightning_config, workdir, ckptdir, logger)
+    model, processor = load_and_configure_model(config, args)
+    dataloader = load_and_configure_data(config, processor, config.data.batch_size)
 
-    ## MODEL CONFIG >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    logger.info("***** Configing Model *****")
-    model_config = config.pop("model", OmegaConf.create())
-
-    ## update trainer config
-    for k in get_nondefault_trainer_args(args):
-        trainer_config[k] = getattr(args, k)
-        
-    num_nodes = trainer_config.num_nodes
-    ngpu_per_node = trainer_config.devices
-    logger.info(f"Running on {num_rank}={num_nodes}x{ngpu_per_node} GPUs")
-
-    ## setup learning rate
-    base_lr = model_config.base_learning_rate
-    bs = config.data.batch_size
-    if getattr(model_config, 'scale_lr', True):
-        model_config.learning_rate = num_rank * bs * base_lr
-    else:
-        model_config.learning_rate = base_lr
-
-    model, processor = load_wm(repo_id=args.model_path,training_args=model_config)
-    model = model.to(dtype=torch.bfloat16)
-
-
-
-    ## DATA CONFIG >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    logger.info("***** Configing Data *****")
-    dataset = WebVid(processor=processor, **config.data)
-    data = DataModuleFromConfig(batch_size=bs,train=dataset,num_workers=config.data.num_workers)
-    # data.setup()
-    for k in data.datasets:
-        logger.info(f"{k}, {data.datasets[k].__class__.__name__}, {len(data.datasets[k])}")
-
-    ## TRAINER CONFIG >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    logger.info("***** Configing Trainer *****")
-    if "accelerator" not in trainer_config:
-        trainer_config["accelerator"] = "gpu"
-
-    ## setup trainer args: pl-logger and callbacks
-    trainer_kwargs = dict()
-    trainer_kwargs["num_sanity_val_steps"] = 0
-    logger_cfg = get_trainer_logger(lightning_config, workdir, args.debug)
-    trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
-    
-    ## setup callbacks
-    callbacks_cfg = get_trainer_callbacks(lightning_config, config, workdir, ckptdir, logger)
-    trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
-    strategy_cfg = get_trainer_strategy(lightning_config)
-    trainer_kwargs["strategy"] = strategy_cfg if type(strategy_cfg) == str else instantiate_from_config(strategy_cfg)
-    trainer_kwargs['precision'] = lightning_config.get('precision', 32)
-    trainer_kwargs["sync_batchnorm"] = False
-
-    ## trainer config: others
-    print(trainer_kwargs)
-    trainer_args = argparse.Namespace(**trainer_config)
-    trainer = Trainer.from_argparse_args(trainer_args, **trainer_kwargs)
-
-    ## allow checkpointing via USR1
-    def melk(*args, **kwargs):
-        ## run all checkpoint hooks
-        if trainer.global_rank == 0:
-            print("Summoning checkpoint.")
-            ckpt_path = os.path.join(ckptdir, "last_summoning.ckpt")
-            trainer.save_checkpoint(ckpt_path)
-
-    def divein(*args, **kwargs):
-        if trainer.global_rank == 0:
-            import pudb;
-            pudb.set_trace()
-
-    import signal
-    signal.signal(signal.SIGUSR1, melk)
-    signal.signal(signal.SIGUSR2, divein)
-
-    ## Running LOOP >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    logger.info("***** Running the Loop *****")
     if args.train:
         try:
-            if "strategy" in lightning_config and lightning_config['strategy'].startswith('deepspeed'):
+            if lightning_config.strategy.startswith('deepspeed'):
                 logger.info("<Training in DeepSpeed Mode>")
-                ## deepspeed
-                if trainer_kwargs['precision'] == 16:
-                    with torch.cuda.amp.autocast():
-                        trainer.fit(model, data)
-                else:
-                    trainer.fit(model, data)
+                with torch.amp.autocast("cuda"):
+                    trainer.fit(model, dataloader)
             else:
-                logger.info("<Training in DDPSharded Mode>") ## this is default
-                ## ddpsharded
-                trainer.fit(model, data)
-        except Exception:
-            #melk()
-            raise
-
-    # if args.val:
-    #     trainer.validate(model, data)
-    # if args.test or not trainer.interrupted:
-    #     trainer.test(model, data)
+                logger.info("<Training in DDPSharded Mode>")
+                trainer.fit(model, dataloader)
+        except Exception as e:
+            raise e
+    
+    model.eval()
+    if args.val:
+        trainer.validate(model, dataloader)
+    if args.test:
+        trainer.test(model, dataloader)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except:
-        import sys, pdb, bdb
-        type, value, tb = sys.exc_info()
-        if type == bdb.BdbQuit or type == SystemExit:
-            exit()
-        print(type, value)
-        pdb.post_mortem(tb)
-        
+    main()
+    # try:
+    #     main()
+    # except Exception as e:
+    #     import sys, pdb, bdb
+    #     type, value, tb = sys.exc_info()
+    #     if type == bdb.BdbQuit or type == SystemExit:
+    #         exit()
+    #     print(type, value)
+    #     pdb.post_mortem(tb)

@@ -10,11 +10,6 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from transformers import AutoTokenizer
-import boto3
-import shutil
-
-from torch.multiprocessing import Lock
-delete_lock = Lock()
 
 class WebVid(Dataset):
     """
@@ -43,8 +38,6 @@ class WebVid(Dataset):
                  fixed_fps=None,
                  random_fs=False,
                  rand_cond_frame=True,
-                 processor=None,
-                 **kwargs,
                  ):
         self.meta_path = meta_path
         self.data_dir = data_dir
@@ -59,13 +52,9 @@ class WebVid(Dataset):
         self.random_fs = random_fs
         self.rand_cond_frame = rand_cond_frame
 
-        self.image_processor = processor['image_processor']
-        self.diffusion_image_processor = processor['diffusion_image_processor']
-        self.tokenizer = processor['tokenizer']
-
+        
         self.torch_device = "cuda" if torch.cuda.is_available() else "cpu"
         self._load_metadata()
-
         if spatial_transform is not None:
             if spatial_transform == "random_crop":
                 self.spatial_transform = transforms.RandomCrop(crop_resolution)
@@ -85,52 +74,25 @@ class WebVid(Dataset):
                 raise NotImplementedError
         else:
             self.spatial_transform = None
-
-    def dynamic_resize(self, img):
-        '''resize frames'''
-        width, height = img.size
-        t_width, t_height = 512, 320
-        k = min(t_width/width, t_height/height)
-        new_width, new_height = int(width*k), int(height*k)
-        pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
-        trans = transforms.Compose([transforms.Resize((new_height, new_width),antialias=True),
-                                    transforms.Pad(pad)])
-        return trans(img)
-                
-    def process_img(self, image):
-        pixel_values = self.image_processor(images=image, return_tensors="pt").pixel_values # normalize change axis etc.
-        diffusion_pixel_values = self.diffusion_image_processor(self.dynamic_resize(image).convert('RGB')).unsqueeze(1) # [C, 1, H, W]
-        diffusion_cond_image = diffusion_pixel_values.unsqueeze(0)[:, :, 0] #[1, C, H, W]
-        return {'pixel_values':pixel_values.bfloat16(), 'diffusion_pixel_values':diffusion_pixel_values.bfloat16(), 'diffusion_cond_image':diffusion_cond_image.bfloat16()}
         
     def _load_metadata(self):
-        if(os.path.isdir(self.meta_path)):
-            dataframes = []
-            for filename in reversed(os.listdir(self.meta_path)):
-                if filename.endswith('.csv'):
-                    # 构建完整的文件路径
-                    file_path = os.path.join(self.meta_path, filename)
-                    # 读取 CSV 文件并将其添加到数据帧列表中
-                    df = pd.read_csv(file_path, encoding='ISO-8859-1')
-                    dataframes.append(df)
-            metadata = pd.concat(dataframes)
-        else:
-            metadata = pd.read_csv(self.meta_path, dtype=str)
+
+        metadata = pd.read_csv(self.meta_path, dtype=str)
         print(f'>>> {len(metadata)} data samples loaded.')
         if self.subsample is not None:
             metadata = metadata.sample(self.subsample, random_state=0)
    
+        metadata['caption'] = metadata['name']
+        del metadata['name']
         self.metadata = metadata
         self.metadata.dropna(inplace=True)
 
-
-
     def _get_video_path(self, sample):
+
         rel_video_fp = os.path.join(sample['page_dir'], str(sample['videoid']) + '.mp4')
         full_video_fp = os.path.join(self.data_dir, 'videos', rel_video_fp)
         return full_video_fp
-
-
+    
     def __getitem__(self, index):
 
         if self.random_fs:
@@ -142,10 +104,10 @@ class WebVid(Dataset):
         while True:
             index = index % len(self.metadata)
             sample = self.metadata.iloc[index]
+            video_path = self._get_video_path(sample)
+            ## video_path should be in the format of "....../WebVid/videos/$page_dir/$videoid.mp4"
+            caption = sample['caption']
             try:
-                video_path = self._get_video_path(sample)
-                ## video_path should be in the format of "....../WebVid/videos/$page_dir/$videoid.mp4"
-                caption = sample['caption']
                 if self.load_raw_resolution:
                     video_reader = VideoReader(video_path, ctx=cpu(0))
                 else:
@@ -158,9 +120,8 @@ class WebVid(Dataset):
                     pass
             except:
                 index += 1
-                print(f"Load video failed! path = {sample}")
+                print(f"Load video failed! path = {video_path}")
                 continue
-
             
             fps_ori = video_reader.get_avg_fps()
             if self.fixed_fps is not None:
@@ -196,39 +157,29 @@ class WebVid(Dataset):
                 continue
 
         ## process data
-        batch = self.process_data(caption, frames, frame_stride, fps_ori)
-
-        self.delete_files_in_folder()
-
-        return batch
-    
-    def process_data(self, caption, frames, frame_stride, fps_ori):
         assert(frames.shape[0] == self.video_length),f'{len(frames)}, self.video_length={self.video_length}'
-        # 1. process text
-        text = self.tokenizer.bos_token + "<image>" + caption + "[IMG_P]" * 64
-        batch = self.tokenizer(text, return_tensors="pt", add_special_tokens=False)
-        batch = {k:v[0] for k,v in batch.items()}
-        # 2. process image
-        image = frames.asnumpy()[0]
-        image = Image.fromarray(image)
-        batch.update(self.process_img(image))
-
-        # 4. process video
+        cond_frame_index = 0
+        if self.rand_cond_frame:
+            cond_frame_index = random.randint(0, self.video_length-1)
+        image = frames.asnumpy()[cond_frame_index]
+        image = resize_image(image)
         frames = torch.tensor(frames.asnumpy()).permute(3, 0, 1, 2).float() # [t,h,w,c] -> [c,t,h,w]
+        
         if self.spatial_transform is not None:
             frames = self.spatial_transform(frames)
+        
         if self.resolution is not None:
             assert (frames.shape[2], frames.shape[3]) == (self.resolution[0], self.resolution[1]), f'frames={frames.shape}, self.resolution={self.resolution}'
-
+        
+        ## turn frames tensors to [-1,1]
         frames = (frames / 255 - 0.5) * 2
         fps_clip = fps_ori // frame_stride
         if self.fps_max is not None and fps_clip > self.fps_max:
             fps_clip = self.fps_max
-        video_batch = {'video': frames, 'caption': caption, 'fps': fps_clip, 'frame_stride': frame_stride}
 
-        batch.update(video_batch)
-
-        return batch
+        data = {'image': image, 'video': frames, 'caption': caption, 'path': video_path, 'fps': fps_clip, 'frame_stride': frame_stride}
+        
+        return data
     
     def __len__(self):
         return len(self.metadata)
@@ -238,7 +189,7 @@ def resize_image(image):
     pil_image = Image.fromarray(image)
 
     # 调整图像大小为（224，224）
-    resized_image = pil_image.resize((512, 320))
+    resized_image = pil_image.resize((224, 224))
 
     # 如果原图像有alpha通道，则需要去除alpha通道
     if resized_image.mode == 'RGBA':
@@ -248,7 +199,6 @@ def resize_image(image):
     resized_image_np = np.array(resized_image)
 
     return resized_image_np
-
 
 if __name__== "__main__":
     meta_path = "" ## path to the meta file
