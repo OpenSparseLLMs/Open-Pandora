@@ -1041,32 +1041,6 @@ class LatentDiffusion(DDPM):
         
         return optimizer
 
-    def configure_schedulers(self, optimizer):
-        assert 'target' in self.scheduler_config
-        scheduler_name = self.scheduler_config.target.split('.')[-1]
-        interval = self.scheduler_config.interval
-        frequency = self.scheduler_config.frequency
-        if scheduler_name == "LambdaLRScheduler":
-            scheduler = instantiate_from_config(self.scheduler_config)
-            scheduler.start_step = self.global_step
-            lr_scheduler = {
-                            'scheduler': LambdaLR(optimizer, lr_lambda=scheduler.schedule),
-                            'interval': interval,
-                            'frequency': frequency
-            }
-        elif scheduler_name == "CosineAnnealingLRScheduler":
-            scheduler = instantiate_from_config(self.scheduler_config)
-            decay_steps = scheduler.decay_steps
-            last_step = -1 if self.global_step == 0 else scheduler.start_step
-            lr_scheduler = {
-                            'scheduler': CosineAnnealingLR(optimizer, T_max=decay_steps, last_epoch=last_step),
-                            'interval': interval,
-                            'frequency': frequency
-            }
-        else:
-            raise NotImplementedError
-        return lr_scheduler
-
 
 class LatentVisualDiffusion(LatentDiffusion):
     def __init__(self, img_cond_stage_config, image_proj_stage_config, freeze_embedder=True, *args, **kwargs):

@@ -4,14 +4,18 @@ from tqdm import tqdm
 import pandas as pd
 from decord import VideoReader, cpu
 import numpy as np
+import boto3
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from transformers import AutoTokenizer
+import shutil
+from torch.multiprocessing import Lock
+delete_lock = Lock()
 
-class WebVid(Dataset):
+class OpenVid(Dataset):
     """
     WebVid Dataset.
     Assumes webvid data is structured as follows.
@@ -38,6 +42,8 @@ class WebVid(Dataset):
                  fixed_fps=None,
                  random_fs=False,
                  rand_cond_frame=True,
+                 processor=None,
+                 **kwargs,
                  ):
         self.meta_path = meta_path
         self.data_dir = data_dir
@@ -51,8 +57,24 @@ class WebVid(Dataset):
         self.load_raw_resolution = load_raw_resolution
         self.random_fs = random_fs
         self.rand_cond_frame = rand_cond_frame
+        self.max_prompt_len = 512
+        self.img_p_token = '[IMG_P]'
+        self.image_processor = processor['image_processor']
+        self.diffusion_image_processor = processor['diffusion_image_processor']
+        self.tokenizer = processor['tokenizer']
+        self.local_cache_dir = '/mnt/petrelfs/tianjie/projects/Datasets/video_cache/'
+        access_key = "KWPYSOIONY8RUTYTMBA2"
+        secret_key = "HuKw9Un8BQqtmkmUAn53gBO2mOK1tUleqDVXzEEF"
+        endpoint_url='http://p-ceph-hdd2-outside.pjlab.org.cn'
+        os.makedirs(self.local_cache_dir,exist_ok=True)
+        # !!private date
+        self.s3_client = boto3.client(
+        's3',
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key
+        )
 
-        
         self.torch_device = "cuda" if torch.cuda.is_available() else "cpu"
         self._load_metadata()
         if spatial_transform is not None:
@@ -81,17 +103,17 @@ class WebVid(Dataset):
         print(f'>>> {len(metadata)} data samples loaded.')
         if self.subsample is not None:
             metadata = metadata.sample(self.subsample, random_state=0)
-   
-        metadata['caption'] = metadata['name']
-        del metadata['name']
         self.metadata = metadata
         self.metadata.dropna(inplace=True)
+    
+    def _get_video_path(self, sample, s3_bucket='moe-checkpoints'):
+        # s3_path = sample['id']
+        mp4_file_key = os.path.join("tianjie/OpenVid-1M", sample['path'])
 
-    def _get_video_path(self, sample):
+        local_video_path = os.path.join(self.local_cache_dir, os.path.basename(mp4_file_key))
+        self.s3_client.download_file(s3_bucket, mp4_file_key, local_video_path)
 
-        rel_video_fp = os.path.join(sample['page_dir'], str(sample['videoid']) + '.mp4')
-        full_video_fp = os.path.join(self.data_dir, 'videos', rel_video_fp)
-        return full_video_fp
+        return local_video_path
     
     def __getitem__(self, index):
 
@@ -104,10 +126,21 @@ class WebVid(Dataset):
         while True:
             index = index % len(self.metadata)
             sample = self.metadata.iloc[index]
-            video_path = self._get_video_path(sample)
-            ## video_path should be in the format of "....../WebVid/videos/$page_dir/$videoid.mp4"
-            caption = sample['caption']
+            
             try:
+                video_path = self._get_video_path(sample)
+                ## video_path should be in the format of "....../WebVid/videos/$page_dir/$videoid.mp4"
+                # caption = sample['caption']
+                caption = ""
+                # mix camera_motion
+                if random.random() > 0.1 and sample.get('camera motion') not in [None, 'Undetermined']:
+                    caption = caption.strip('.')
+                    if random.random() > 0.2:
+                        caption += 'camera ' + sample['camera motion']
+                    else:
+                        caption += 'camera ' + sample['camera motion'].replace('_',' ')
+                    caption = caption + '.'
+                    
                 if self.load_raw_resolution:
                     video_reader = VideoReader(video_path, ctx=cpu(0))
                 else:
@@ -120,7 +153,7 @@ class WebVid(Dataset):
                     pass
             except:
                 index += 1
-                print(f"Load video failed! path = {video_path}")
+                print(f"Load video failed! path = {sample}")
                 continue
             
             fps_ori = video_reader.get_avg_fps()
@@ -149,7 +182,7 @@ class WebVid(Dataset):
             ## calculate frame indices
             frame_indices = [start_idx + frame_stride*i for i in range(self.video_length)]
             try:
-                frames = video_reader.get_batch(frame_indices)
+                frames = video_reader.get_batch(frame_indices).asnumpy()
                 break
             except:
                 print(f"Get frames failed! path = {video_path}; [max_ind vs frame_total:{max(frame_indices)} / {frame_num}]")
@@ -158,31 +191,101 @@ class WebVid(Dataset):
 
         ## process data
         assert(frames.shape[0] == self.video_length),f'{len(frames)}, self.video_length={self.video_length}'
-        cond_frame_index = 0
-        if self.rand_cond_frame:
-            cond_frame_index = random.randint(0, self.video_length-1)
-        image = frames.asnumpy()[cond_frame_index]
-        image = resize_image(image)
-        frames = torch.tensor(frames.asnumpy()).permute(3, 0, 1, 2).float() # [t,h,w,c] -> [c,t,h,w]
-        
-        if self.spatial_transform is not None:
-            frames = self.spatial_transform(frames)
-        
-        if self.resolution is not None:
-            assert (frames.shape[2], frames.shape[3]) == (self.resolution[0], self.resolution[1]), f'frames={frames.shape}, self.resolution={self.resolution}'
-        
-        ## turn frames tensors to [-1,1]
-        frames = (frames / 255 - 0.5) * 2
-        fps_clip = fps_ori // frame_stride
-        if self.fps_max is not None and fps_clip > self.fps_max:
-            fps_clip = self.fps_max
 
-        data = {'image': image, 'video': frames, 'caption': caption, 'path': video_path, 'fps': fps_clip, 'frame_stride': frame_stride}
-        
+        data = self.process_data(caption, frames, frame_stride, fps_ori)
+        # data = {'image': image, 'video': frames, 'caption': caption, 'path': video_path, 'fps': fps_clip, 'frame_stride': frame_stride}
+        self.delete_files_in_folder()
         return data
     
     def __len__(self):
         return len(self.metadata)
+
+    def process_data(self, caption, frames, frame_stride, fps_ori):
+        assert(frames.shape[0] == self.video_length),f'{len(frames)}, self.video_length={self.video_length}'
+        # 1. process text
+        batch = self.tokenize_and_truncate(caption)
+        # 2. process image
+        batch.update(self.process_img(frames[:5]))
+        frames = frames[4:]
+        # 3. process video
+        frames = torch.tensor(frames).permute(3, 0, 1, 2).float() # [t,h,w,c] -> [c,t,h,w]
+        if self.spatial_transform is not None:
+            frames = self.spatial_transform(frames)
+        if self.resolution is not None:
+            assert (frames.shape[2], frames.shape[3]) == (self.resolution[0], self.resolution[1]), f'frames={frames.shape}, self.resolution={self.resolution}'
+
+        frames = (frames / 255 - 0.5) * 2
+        fps_clip = fps_ori // frame_stride
+        if self.fps_max is not None and fps_clip > self.fps_max:
+            fps_clip = self.fps_max
+        video_batch = {'video': frames, 'caption': caption, 'fps': fps_clip, 'frame_stride': frame_stride}
+
+        batch.update(video_batch)
+
+        return batch
+    
+    def process_img(self, images):
+        images = [Image.fromarray(img) for img in images]
+        image = images[4]
+        pixel_values = self.image_processor(images=image, return_tensors="pt").pixel_values # normalize change axis etc.
+        cond_image_values = [self.diffusion_image_processor(self.dynamic_resize(img).convert('RGB')) for img in images[:5]]
+        if random.random() > 0.2 :
+            diffusion_pixel_values = cond_image_values[-1].unsqueeze(1)
+        else :
+            diffusion_pixel_values = torch.stack(cond_image_values[:4], dim=1)
+        diffusion_cond_image = cond_image_values[-1].unsqueeze(0) #[1, C, H, W]
+        return {'pixel_values':pixel_values.bfloat16(), 'diffusion_pixel_values':diffusion_pixel_values.bfloat16(), 'diffusion_cond_image':diffusion_cond_image.bfloat16()}
+
+    def tokenize_and_truncate(self, caption):
+        
+        text = self.tokenizer.bos_token + "<image>" + caption
+        tokens = self.tokenizer.encode(text, add_special_tokens=False)
+
+        truncated_tokens = tokens[:self.max_prompt_len - 64]
+
+        img_p_tokens = [self.tokenizer.encode(self.img_p_token, add_special_tokens=False)] * 64
+
+        final_tokens = truncated_tokens + sum(img_p_tokens, [])
+
+        final_tokens_tensor = torch.tensor(final_tokens)
+        batch = {"input_ids": final_tokens_tensor, "attention_mask": torch.ones_like(final_tokens_tensor)}
+
+        return batch
+    
+    def dynamic_resize(self, img):
+        '''resize frames'''
+        width, height = img.size
+        t_width, t_height = 512, 320
+        k = min(t_width/width, t_height/height)
+        new_width, new_height = int(width*k), int(height*k)
+        pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
+        trans = transforms.Compose([transforms.Resize((new_height, new_width),antialias=True),
+                                    transforms.Pad(pad)])
+        return trans(img)
+    
+    def delete_files_in_folder(self):
+        """
+        删除指定文件夹下的所有文件
+
+        参数：
+        folder_path：要删除文件的文件夹路径
+        """
+        # 获取文件夹中的所有文件名
+        with delete_lock:
+            file_names = os.listdir(self.local_cache_dir)
+            if len(file_names)>1e3:
+                # 遍历所有文件并删除
+                try:
+                    shutil.rmtree(self.local_cache_dir)
+                except OSError as e:
+                    print(f"Error: {e.strerror}")
+
+                try:
+                    os.makedirs(self.local_cache_dir)
+                except OSError as e:
+                    print(f"Error: {e.strerror}")
+
+                
 
 def resize_image(image):
     # 将图像转换为PIL图像对象

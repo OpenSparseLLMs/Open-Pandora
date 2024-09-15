@@ -1,7 +1,7 @@
 model:
   pretrained_checkpoint: null
-  dynamicrafter_config: ./DynamiCrafter/configs/inference_512_v1.0.yaml
-  learning_rate: 5.0e-05
+  dynamicrafter_config: ./DynamiCrafter/configs/inference_1024_v1.0.yaml
+  learning_rate: 1.0e-06
   do_alignment: false
   monitor: val/rec_loss
 
@@ -11,7 +11,7 @@ data:
   video_length: 20 # pre frame + target frame (4 + 16)
   frame_stride: 6
   load_raw_resolution: true
-  resolution: [320, 512]
+  resolution: [576, 1024]
   spatial_transform: resize_center_crop
   random_fs: true  ## if true, we uniformly sample fs with max_fs=frame_stride (above)
   batch_size: 1
@@ -23,8 +23,8 @@ lightning:
   trainer:
     benchmark: True
     accumulate_grad_batches: 1
-    max_steps: 200000
-    max_epochs: 10
+    max_steps: 5000
+    max_epochs: 8
     # logger
     log_every_n_steps: 50
     # val
@@ -36,7 +36,7 @@ lightning:
     model_checkpoint:
       target: pytorch_lightning.callbacks.ModelCheckpoint
       params:
-        every_n_train_steps: 20000 
+        every_n_train_steps: 1000 
         filename: "{epoch}-{step}"
         save_weights_only: True
         save_top_k: 1
