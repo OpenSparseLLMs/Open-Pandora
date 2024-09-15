@@ -61,7 +61,7 @@ def load_wm(repo_id,training_args=None, model=None):
     else:
         config.reset_training_args(
             do_alignment=False,
-            dynamicrafter='./DynamiCrafter/configs/inference_512_v1.0.yaml',
+            dynamicrafter='./DynamiCrafter/configs/inference_1024_v1.0.yaml',
             )
         
     if model == None:
@@ -383,12 +383,12 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
 
         assert input_ids[0][-1] == tokenizer.image_prefix_token_id
 
-        print("use FrozenOpenCLIPEmbedder")
-        caption = tokenizer.decode(input_ids[0],skip_special_tokens=True)
-        diffusion_conditioning = self.diffusion_model.cond_stage_model(caption) 
+        # print("use FrozenOpenCLIPEmbedder")
+        # caption = tokenizer.decode(input_ids[0],skip_special_tokens=True)
+        # diffusion_conditioning = self.diffusion_model.cond_stage_model(caption) 
 
-        # diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
-        # diffusion_conditioning = diffusion_conditioning[-1:] # Only generate last video
+        diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
+        diffusion_conditioning = diffusion_conditioning[-1:] # Only generate last video
 
         h, w = diffusion_pixel_values.shape[-2:]
         samples = self.image_guided_synthesis(diffusion_conditioning=diffusion_conditioning,
