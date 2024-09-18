@@ -133,13 +133,13 @@ class OpenVid(Dataset):
                 # caption = sample['caption']
                 caption = ""
                 # mix camera_motion
-                if random.random() > 0.1 and sample.get('camera motion') not in [None, 'Undetermined']:
-                    caption = caption.strip('.')
-                    if random.random() > 0.2:
-                        caption += 'camera ' + sample['camera motion']
-                    else:
-                        caption += 'camera ' + sample['camera motion'].replace('_',' ')
-                    caption = caption + '.'
+                # if random.random() > 0.1 and sample.get('camera motion') not in [None, 'Undetermined']:
+                caption = caption.strip('.')
+                if random.random() > 0.2:
+                    caption += 'camera ' + sample['camera motion']
+                else:
+                    caption += 'camera ' + sample['camera motion'].replace('_',' ')
+                caption = caption + '.'
                     
                 if self.load_raw_resolution:
                     video_reader = VideoReader(video_path, ctx=cpu(0))

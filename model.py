@@ -175,8 +175,9 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         self.post_init()
         
         self.video_model = AutoModelForCausalLM.from_pretrained(config.video_model_name_or_path, config=video_model_config)
-        lora_config = LoraConfig(peft_type=TaskType.CAUSAL_LM,r=64,lora_alpha=16,lora_dropout=0.05)
+        lora_config = LoraConfig(target_modules=["q_proj", "v_proj"],peft_type=TaskType.CAUSAL_LM,r=64,lora_alpha=16,lora_dropout=0.05)
         self.video_model = get_peft_model(self.video_model,lora_config,adapter_name="llm")
+
         for module in self.video_model.modules():
             module._is_hf_initialized = True
 
@@ -243,7 +244,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
 
         # print(f'12 normal {inputs_embeds.shape=}', flush=True)
-        outputs = video_model.model(
+        outputs = video_model.model.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             past_key_values=past_key_values,
@@ -544,11 +545,11 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         #     # params.extend(list(self.diffusion_model.image_proj_model.parameters())) 
         #     # params = list(self.video_model.model.parameters())
 
-        # params.append(self.diffusion_query_tokens)
-        # params.extend(self.image_prefix.parameters())
-        # params.extend(list(self.diffusion_proj.parameters()))
-        # params.extend(list(self.diffusion_qformer.parameters()))
-        # params.extend(list(self.diffusion_qformer_proj.parameters()))
+        trainable_params.append(self.diffusion_query_tokens)
+        trainable_params.extend(self.image_prefix.parameters())
+        trainable_params.extend(list(self.diffusion_proj.parameters()))
+        trainable_params.extend(list(self.diffusion_qformer.parameters()))
+        trainable_params.extend(list(self.diffusion_qformer_proj.parameters()))
         
         ## optimizer
         optimizer = torch.optim.AdamW(trainable_params, lr=lr)
