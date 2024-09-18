@@ -1,6 +1,5 @@
 import torch
 import uuid
-from peft import get_peft_model, LoraConfig, TaskType
 import numpy as np
 import torchvision
 from PIL import Image
@@ -62,12 +61,20 @@ def load_wm(repo_id,training_args=None, model=None):
     else:
         config.reset_training_args(
             do_alignment=False,
-            dynamicrafter='./DynamiCrafter/configs/inference_512_v1.0.yaml',
+            dynamicrafter='./DynamiCrafter/configs/inference_1024_v1.0.yaml',
             )
         
     if model == None:
         model = WorldModel.from_pretrained(repo_id, config=config, ignore_mismatched_sizes=True)
-    
+        model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
+        # 加载检查点
+        checkpoint_path='/mnt/petrelfs/share_data/quxiaoye/models/DynamiCrafter_1024/model.ckpt'
+        checkpoint = torch.load(checkpoint_path)
+        checkpoint = {'diffusion_model.'+k:v for k,v in checkpoint['state_dict'].items()}
+        # 将检查点中的状态字典加载到模型中
+        model.load_state_dict(checkpoint,strict=False)
+        del checkpoint
+
     # load image processors
     image_processor = model.video_model.get_vision_tower().image_processor
     diffusion_image_processor= transforms.Compose([
@@ -88,13 +95,17 @@ def load_wm(repo_id,training_args=None, model=None):
 
 def dynamic_resize(img):
     '''resize frames'''
-    width, height = img.size
-    t_width, t_height = 512, 320
-    k = min(t_width/width, t_height/height)
-    new_width, new_height = int(width*k), int(height*k)
-    pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
-    trans = transforms.Compose([transforms.Resize((new_height, new_width)),
-                                transforms.Pad(pad)])
+    # width, height = img.size
+    # t_width, t_height = 1024, 576
+    # k = min(t_width/width, t_height/height)
+    # new_width, new_height = int(width*k), int(height*k)
+    # pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
+    # trans = transforms.Compose([transforms.Resize((new_height, new_width)),
+    #                             transforms.Pad(pad)])
+    trans = transforms.Compose([
+            transforms.Resize(min((576, 1024))),
+            transforms.CenterCrop((576, 1024))
+            ])
     return trans(img)
 
 
@@ -175,9 +186,6 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         self.post_init()
         
         self.video_model = AutoModelForCausalLM.from_pretrained(config.video_model_name_or_path, config=video_model_config)
-        lora_config = LoraConfig(target_modules=["q_proj", "v_proj"],peft_type=TaskType.CAUSAL_LM,r=64,lora_alpha=16,lora_dropout=0.05)
-        self.video_model = get_peft_model(self.video_model,lora_config,adapter_name="llm")
-
         for module in self.video_model.modules():
             module._is_hf_initialized = True
 
@@ -225,26 +233,26 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         labels = input_ids.clone()
         input_ids[input_ids.eq(image_prefix_token_id)] = 0
         input_ids, attention_mask, past_key_values, inputs_embeds, labels = video_model.prepare_inputs_labels_for_multimodal(input_ids, attention_mask, None, labels, pixel_values)
-        bs, seq_len = labels.shape
+        
         # print('11 normal', flush=True)
-        # if self.config.use_image_prefix:
-        #     bs, seq_len = labels.shape
-        #     labels = labels.reshape(-1)
-        #     image_prefix_mask = labels.eq(image_prefix_token_id)
-        #     inputs_embeds = inputs_embeds.reshape(bs * seq_len, -1)
+        if self.config.use_image_prefix:
+            bs, seq_len = labels.shape
+            labels = labels.reshape(-1)
+            image_prefix_mask = labels.eq(image_prefix_token_id)
+            inputs_embeds = inputs_embeds.reshape(bs * seq_len, -1)
             
  
-        #     image_num = image_prefix_mask.sum().item() / self.config.image_prefix_length
-        #     assert int(image_num) == image_num
-        #     image_prefix_embeddings = self.image_prefix.weight.repeat(int(image_num), 1)
+            image_num = image_prefix_mask.sum().item() / self.config.image_prefix_length
+            assert int(image_num) == image_num
+            image_prefix_embeddings = self.image_prefix.weight.repeat(int(image_num), 1)
             
-        #     inputs_embeds[image_prefix_mask] = image_prefix_embeddings
-        #     inputs_embeds = inputs_embeds.reshape(bs, seq_len, -1)
+            inputs_embeds[image_prefix_mask] = image_prefix_embeddings
+            inputs_embeds = inputs_embeds.reshape(bs, seq_len, -1)
         
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
 
         # print(f'12 normal {inputs_embeds.shape=}', flush=True)
-        outputs = video_model.model.model(
+        outputs = video_model.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             past_key_values=past_key_values,
@@ -257,10 +265,11 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         # print(f'13 normal {outputs[0].shape}', flush=True)
 
         output_hidden_states = outputs[0]
-        img_feat_num = self.config.image_prefix_length # if self.config.use_image_prefix else self.config.num_query_tokens
         #--------------------------------------------------------------------------------------------------------------------------------------------------------------------
         output_hidden_states = output_hidden_states.reshape(bs * seq_len, -1)
-        image_outputs_embeds = output_hidden_states[-img_feat_num:][diffusion_tgt_mask]
+        image_outputs_embeds = output_hidden_states[image_prefix_mask][diffusion_tgt_mask]
+        diffusion_loss = None
+        img_feat_num = self.config.image_prefix_length # if self.config.use_image_prefix else self.config.num_query_tokens
         diffusion_conditioning = image_outputs_embeds.view(-1, img_feat_num, self.config.video_model_config.hidden_size)
         diffusion_conditioning = self.diffusion_qformer_proj(diffusion_conditioning)
         
@@ -281,8 +290,9 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         z = model.encode_first_stage(x)
         z = rearrange(z, '(b t) c h w -> b c t h w', b=b, t=t)
         if t == 1:
-            zero_pad = repeat(torch.zeros_like(z), 'b c t h w -> b c (repeat t) h w', repeat=3)
-            z = torch.cat([z, zero_pad], dim=2)
+            # zero_pad = repeat(torch.zeros_like(z), 'b c t h w -> b c (repeat t) h w', repeat=3)
+            # z = torch.cat([z, zero_pad], dim=2)
+            z = repeat(z, 'b c t h w -> b c (repeat t) h w', repeat=4)
         z = repeat(z, 'b c t h w -> b c (repeat t) h w', repeat=4)
         return z
 
@@ -386,12 +396,12 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
 
         assert input_ids[0][-1] == tokenizer.image_prefix_token_id
 
-        print("use FrozenOpenCLIPEmbedder")
-        caption = tokenizer.decode(input_ids[0],skip_special_tokens=True)
-        diffusion_conditioning = self.diffusion_model.cond_stage_model(caption) 
+        # print("use FrozenOpenCLIPEmbedder")
+        # caption = tokenizer.decode(input_ids[0],skip_special_tokens=True)
+        # diffusion_conditioning = self.diffusion_model.cond_stage_model(caption) 
 
-        # diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
-        # diffusion_conditioning = diffusion_conditioning[-1:] # Only generate last video
+        diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
+        diffusion_conditioning = diffusion_conditioning[-1:] # Only generate last video
 
         h, w = diffusion_pixel_values.shape[-2:]
         samples = self.image_guided_synthesis(diffusion_conditioning=diffusion_conditioning,
@@ -534,25 +544,24 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
     def configure_optimizers(self):
         
         lr = self.config.learning_rate
-        trainable_params = [param for param in self.video_model.parameters() if param.requires_grad]
-        # params = list()
-        # if not self.config.do_alignment:
-        #     params = list(self.diffusion_model.model.parameters())
+        params = list()
+        if not self.config.do_alignment:
+            params = list(self.diffusion_model.model.parameters())
 
-        #     # 只保留包含"2.transformer_blocks."的参数
-        #     # params = [param for name, param in all_params if "1.transformer_blocks." in name]
-        #     # params = list(self.diffusion_model.model.parameters())
-        #     # params.extend(list(self.diffusion_model.image_proj_model.parameters())) 
-        #     # params = list(self.video_model.model.parameters())
+            # 只保留包含"2.transformer_blocks."的参数
+            # params = [param for name, param in all_params if "1.transformer_blocks." in name]
+            # params = list(self.diffusion_model.model.parameters())
+            # params.extend(list(self.diffusion_model.image_proj_model.parameters())) 
+            # params = list(self.video_model.model.parameters())
 
-        trainable_params.append(self.diffusion_query_tokens)
-        trainable_params.extend(self.image_prefix.parameters())
-        trainable_params.extend(list(self.diffusion_proj.parameters()))
-        trainable_params.extend(list(self.diffusion_qformer.parameters()))
-        trainable_params.extend(list(self.diffusion_qformer_proj.parameters()))
+        params.append(self.diffusion_query_tokens)
+        params.extend(self.image_prefix.parameters())
+        params.extend(list(self.diffusion_proj.parameters()))
+        params.extend(list(self.diffusion_qformer.parameters()))
+        params.extend(list(self.diffusion_qformer_proj.parameters()))
         
         ## optimizer
-        optimizer = torch.optim.AdamW(trainable_params, lr=lr)
+        optimizer = torch.optim.AdamW(params, lr=lr)
 
         ## lr scheduler
         # if self.use_scheduler:
@@ -606,11 +615,10 @@ class ChatWM():
         self.current_round = 1
         if self.model == None: # debug mode
             return self.video_path[0]
-         
         self.text = self.tokenizer.bos_token + "<image> " + text_input + "[IMG_P]" * 64
         
-        if type(image) == np.ndarray:
-            image = Image.fromarray(image)
+        # if type(image) == np.ndarray:
+        #     image = Image.fromarray(image) # <class 'numpy.ndarray'> -> <class 'PIL.Image.Image'>
         batch = self.tokenizer(self.text, return_tensors="pt", add_special_tokens=False)
         batch.update(self.process_img(image))
         batch = {k: v.to(torch_device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
@@ -761,7 +769,12 @@ class ChatWM():
     
     def process_img(self, image):
         pixel_values = self.image_processor(images=image, return_tensors="pt").pixel_values.to(torch_device)
-        diffusion_pixel_values = self.diffusion_image_processor(dynamic_resize(image).convert('RGB')).unsqueeze(1)
+        # img_tensor = torch.from_numpy(np.array(image)).permute(2, 0, 1).float()
+        # norm_img = (img_tensor / 255. - 0.5) * 2 
+        
+        # dn_img = dynamic_resize(norm_img)
+        resized_img = dynamic_resize(Image.fromarray(image)) #(4400, 2750, 3) -> 576x1024
+        diffusion_pixel_values = self.diffusion_image_processor(resized_img).unsqueeze(1)
         diffusion_cond_image = diffusion_pixel_values.unsqueeze(0)[:, :, 0]
         return {'pixel_values':pixel_values.bfloat16(), 'diffusion_pixel_values':diffusion_pixel_values.bfloat16(), 'diffusion_cond_image':diffusion_cond_image.bfloat16()}
     

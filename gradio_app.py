@@ -156,7 +156,7 @@ with demo:
     with gr.Tabs():
         with gr.Row():
             with gr.Column(visible=True, scale=0.6)  as input_raws:
-                image_input = gr.Image(label='Current State',height=320,width=1024)
+                image_input = gr.Image(label='Current State',height=576,width=1024)
                 text_input = gr.Textbox(label='Text Control Action')
                 with gr.Row():
                     round1_button = gr.Button("💭 Action 1",visible=True, interactive=True,variant="primary")
@@ -211,4 +211,4 @@ with demo:
                                                       n_samples,unconditional_guidance_scale, ddim_eta, num_round], outputs=[video_output_0,round2_button,round3_button,round4_button,round5_button])
     clear_button.click(gradio_reset,outputs=total_output)
 demo.queue()
-demo.launch(share=False, server_name='0.0.0.0', server_port=10040)
+demo.launch(share=False, server_name='0.0.0.0', server_port=10041)
