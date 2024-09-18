@@ -124,11 +124,11 @@ if args.debug:
 else:
     model, processor = load_wm(repo_id =repo_id)
     model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-    pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/Pandora/output/finetune/checkpoints/epoch=3-step=3000.ckpt/checkpoint/mp_rank_00_model_states.pt'
-    model_state = torch.load(pretrained_ckpt, weights_only=False)['module']
-    model_state = {k.replace('_forward_module.',''):v for k,v in model_state.items()}
-    model.load_state_dict(model_state, strict=True)
-    del model_state
+    # pretrained_ckpt = '/mnt/petrelfs/share_data/quxiaoye/models/DynamiCrafter_1024/model.ckpt'
+    # model_state = torch.load(pretrained_ckpt, weights_only=False)['state_dict']
+    # model_state = {'qdiffusion_model.'+k:v for k,v in model_state.items()}
+    # model.load_state_dict(model_state, strict=False)
+    # del model_state
     # import pdb;pdb.set_trace()
     # torch.save(model.state_dict(), '/mnt/petrelfs/tianjie/projects/Pandora/Open-Pandora/pytorch_model.bin')
     # import pdb;pdb.set_trace()
