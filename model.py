@@ -448,7 +448,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         input_mask = 1 - rearrange((random_num >= self.diffusion_model.uncond_prob).float() * (random_num < 3 * self.diffusion_model.uncond_prob).float(), "n -> n 1 1 1")
 
         null_prompt = self.diffusion_model.get_learned_conditioning([""])
-        prompt_emb = torch.where(prompt_mask, null_prompt, cond_emb.detach())
+        prompt_emb = torch.where(prompt_mask, null_prompt, cond_emb)
 
         img = diffusion_cond_image[0]
         img = input_mask * img
@@ -506,6 +506,8 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
   
     
     def training_step(self, batch, batch_idx):
+        if batch_idx%200==0:
+            print(self.image_prefix.weight)
         if not self.config.do_alignment:
 
             x, c, fs = self.get_batch_input(**batch, random_uncond=False)
@@ -542,7 +544,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
             # params = list(self.video_model.model.parameters())
 
         params.append(self.diffusion_query_tokens)
-        params.extend(self.image_prefix.parameters())
+        params.extend(list(self.image_prefix.parameters()))
         params.extend(list(self.diffusion_proj.parameters()))
         params.extend(list(self.diffusion_qformer.parameters()))
         params.extend(list(self.diffusion_qformer_proj.parameters()))
