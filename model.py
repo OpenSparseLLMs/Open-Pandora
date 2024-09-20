@@ -64,7 +64,7 @@ def load_wm(repo_id,training_args=None, model=None):
         
     if model == None:
         model = WorldModel.from_pretrained(repo_id, config=config, ignore_mismatched_sizes=True)
-        model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
+        # model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
     # model loaded
     
     # load image processors
@@ -427,7 +427,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         input_mask = 1 - rearrange((random_num >= self.diffusion_model.uncond_prob).float() * (random_num < 3 * self.diffusion_model.uncond_prob).float(), "n -> n 1 1 1")
 
         null_prompt = self.diffusion_model.get_learned_conditioning([""])
-        prompt_imb = torch.where(prompt_mask, null_prompt, cond_emb.detach())
+        prompt_imb = torch.where(prompt_mask, null_prompt, cond_emb)
 
         img = diffusion_cond_image[0]
         img = input_mask * img
@@ -513,7 +513,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
             params = list(self.diffusion_model.model.parameters())
             # params = list(self.video_model.model.parameters())
         #stage 1
-        params.extend(self.image_prefix.parameters())
+        params.extend(list(self.image_prefix.parameters()))
         params.extend(list(self.diffusion_qformer_proj.parameters()))
         params.extend(list(self.diffusion_qformer.parameters()))
         params.extend(list(self.diffusion_proj.parameters()))
