@@ -6,7 +6,7 @@
     <a href="https://huggingface.co/Tuyabei/Open-Pandora"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue"></a>
 </div>
 
-<h2 align="center"> Open-Pandora: An Open Source Pandora Replication</h2>
+<h2 align="center"> Open-Pandora: An Open World video generation model</h2>
 
 
 Based on the [maitrix-org/Pandora](https://github.com/maitrix-org/Pandora) project on GitHub, we have open-sourced the training code and models for the Pandora project. The training process includes two main stages: alignment and finetuning. Additionally, we have released the latest Pandora model weights, which were trained for 60w steps on the [Webvid](https://huggingface.co/datasets/TempoFunk/webvid-10M) dataset.

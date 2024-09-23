@@ -55,25 +55,15 @@ def load_wm(repo_id,training_args=None, model=None):
     if training_args is not None:
         config.reset_training_args(
             do_alignment=training_args.do_alignment,
-            dynamicrafter=training_args.dynamicrafter_config,
             learning_rate=training_args.learning_rate
             )
     else:
         config.reset_training_args(
             do_alignment=False,
-            dynamicrafter='./DynamiCrafter/configs/inference_1024_v1.0.yaml',
             )
         
     if model == None:
         model = WorldModel.from_pretrained(repo_id, config=config, ignore_mismatched_sizes=True)
-        model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-        # 加载检查点
-        checkpoint_path='/mnt/petrelfs/share_data/quxiaoye/models/DynamiCrafter_1024/model.ckpt'
-        checkpoint = torch.load(checkpoint_path)
-        checkpoint = {'diffusion_model.'+k:v for k,v in checkpoint['state_dict'].items()}
-        # 将检查点中的状态字典加载到模型中
-        model.load_state_dict(checkpoint,strict=False)
-        del checkpoint
 
     # load image processors
     image_processor = model.video_model.get_vision_tower().image_processor
@@ -95,13 +85,6 @@ def load_wm(repo_id,training_args=None, model=None):
 
 def dynamic_resize(img):
     '''resize frames'''
-    # width, height = img.size
-    # t_width, t_height = 1024, 576
-    # k = min(t_width/width, t_height/height)
-    # new_width, new_height = int(width*k), int(height*k)
-    # pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
-    # trans = transforms.Compose([transforms.Resize((new_height, new_width)),
-    #                             transforms.Pad(pad)])
     trans = transforms.Compose([
             transforms.Resize(min((576, 1024))),
             transforms.CenterCrop((576, 1024))
@@ -548,12 +531,6 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         if not self.config.do_alignment:
             params = list(self.diffusion_model.model.parameters())
 
-            # 只保留包含"2.transformer_blocks."的参数
-            # params = [param for name, param in all_params if "1.transformer_blocks." in name]
-            # params = list(self.diffusion_model.model.parameters())
-            # params.extend(list(self.diffusion_model.image_proj_model.parameters())) 
-            # params = list(self.video_model.model.parameters())
-
         params.append(self.diffusion_query_tokens)
         params.extend(self.image_prefix.parameters())
         params.extend(list(self.diffusion_proj.parameters()))
@@ -769,10 +746,6 @@ class ChatWM():
     
     def process_img(self, image):
         pixel_values = self.image_processor(images=image, return_tensors="pt").pixel_values.to(torch_device)
-        # img_tensor = torch.from_numpy(np.array(image)).permute(2, 0, 1).float()
-        # norm_img = (img_tensor / 255. - 0.5) * 2 
-        
-        # dn_img = dynamic_resize(norm_img)
         resized_img = dynamic_resize(Image.fromarray(image)) #(4400, 2750, 3) -> 576x1024
         diffusion_pixel_values = self.diffusion_image_processor(resized_img).unsqueeze(1)
         diffusion_cond_image = diffusion_pixel_values.unsqueeze(0)[:, :, 0]
