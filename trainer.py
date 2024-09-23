@@ -13,6 +13,7 @@ from utils.utils_train import set_logger, init_workspace, load_checkpoints
 from utils.utils_data import DataModuleFromConfig
 from data.webvid_bot3 import Vimeo, WebVid
 from data.openvid_s3 import OpenVid
+from data.panda import Panda
 from model import load_wm
 # import debugpy
 # debugpy.listen(address=('0.0.0.0',7678))
@@ -66,7 +67,7 @@ def load_and_configure_model(config, args):
     return model, processor
 
 def load_and_configure_data(config, processor, batch_size):
-    dataset = WebVid(processor=processor, **config.data)
+    dataset = Panda(processor=processor, **config.data)
     data_module = DataModuleFromConfig(batch_size=batch_size, train=dataset, num_workers=config.data.num_workers)
     return data_module
 

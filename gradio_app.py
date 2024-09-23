@@ -123,12 +123,19 @@ if args.debug:
     }
 else:
     model, processor = load_wm(repo_id =repo_id)
+    pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/Pandora/output/align/checkpoints/epoch=0-step=320000.ckpt'
+    model_state = torch.load(pretrained_ckpt)['state_dict']
+    # target_key = ['diffusion_query_tokens', 'image_prefix.weight', 'diffusion_proj.weight', 'diffusion_proj.bias', 'diffusion_qformer_proj.weight', 'diffusion_qformer_proj.bias']
+    # target_state = {}
+    # for k,v in model_state.items():
+    #     if 'diffusion_qformer.' in k:
+    #         target_state[k] = v
+
+    #     elif k in target_key:
+    #         target_state[k] = v
+    # print(target_state.keys())
+    model.load_state_dict(model_state, strict=False)
     model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-    # pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/Pandora/output/align/checkpoints/epoch=0-step=20000.ckpt/checkpoint/mp_rank_00_model_states.pt'
-    # model_state = torch.load(pretrained_ckpt)['module']
-    # model_state = {k.replace('_forward_module.',''):v for k,v in model_state.items()}
-    # model.load_state_dict(model_state, strict=False)
-    # del model_state
     # import pdb;pdb.set_trace()
     # torch.save(model.state_dict(), '/mnt/petrelfs/tianjie/projects/Pandora/Open-Pandora/pytorch_model.bin')
     # import pdb;pdb.set_trace()

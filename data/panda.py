@@ -35,7 +35,7 @@ class Panda(Dataset):
                  data_dir,
                  subsample=None,
                  video_length=16,
-                 resolution=[256, 512],
+                 resolution=[512, 320],
                  frame_stride=1,
                  frame_stride_min=1,
                  spatial_transform=None,
@@ -66,10 +66,9 @@ class Panda(Dataset):
         self.tokenizer = processor['tokenizer']
 
         self.local_cache_dir = '/mnt/petrelfs/tianjie/projects/Datasets/video_cache/'
-        access_key = 'VVEGYBP0A4FFFPZDIUIC'
-        secret_key = 'XO3aoVDg4z2sJ8i8TDgDfnwReCJfdawLBgWPzwld'
-        # vimeo
-        endpoint_url='http://10.135.7.249:80'
+        access_key = "KWPYSOIONY8RUTYTMBA2"
+        secret_key = "HuKw9Un8BQqtmkmUAn53gBO2mOK1tUleqDVXzEEF"
+        endpoint_url='http://p-ceph-hdd2-outside.pjlab.org.cn'
         self.torch_device = "cuda" if torch.cuda.is_available() else "cpu"
         self._load_metadata()
         
@@ -103,7 +102,7 @@ class Panda(Dataset):
     def dynamic_resize(self, img):
         '''resize frames'''
         width, height = img.size
-        t_width, t_height = 512, 320
+        t_width, t_height = self.resolution
         k = min(t_width/width, t_height/height)
         new_width, new_height = int(width*k), int(height*k)
         pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
@@ -144,31 +143,18 @@ class Panda(Dataset):
         return {'pixel_values':pixel_values.bfloat16(), 'diffusion_pixel_values':diffusion_pixel_values.bfloat16(), 'diffusion_cond_image':diffusion_cond_image.bfloat16()}
          
     def _load_metadata(self):
-        if(os.path.isdir(self.meta_path)):
-            dataframes = []
-            for filename in os.listdir(self.meta_path):
-                if filename.endswith('.csv'):
-                    # 构建完整的文件路径
-                    file_path = os.path.join(self.meta_path, filename)
-                    # 读取 CSV 文件并将其添加到数据帧列表中
-                    df = pd.read_csv(file_path, encoding='ISO-8859-1')
-                    dataframes.append(df)
-            metadata = pd.concat(dataframes)
-        else:
-            metadata = pd.read_csv(self.meta_path, dtype=str)
+        metadata_ = [ json.loads(i) for i in open(self.meta_path) ]
+        metadata = []
+        for content in metadata_:
+            dataset_name, video_name = meta_path['video_path'].split('/')
+            content["path"] = dataset_name + '/' + content['zip_folder'].strip['.zip']+'/' +video_name 
+            metadata.append(content)
+
         print(f'>>> {len(metadata)} data samples loaded.')
-        if self.subsample is not None:
-            metadata = metadata.sample(self.subsample, random_state=0)
-   
         self.metadata = metadata
-        self.metadata.dropna(inplace=True)
-        self.metadata['captions'] = self.metadata['captions'].apply(ast.literal_eval)
 
-
-    def _get_video_path(self, sample, s3_bucket='WebVid10M'):
-        s3_path = sample['id']
-        mp4_file_key = s3_path.replace(f"s3://{s3_bucket}/", "")
-        mp4_file_key = re.sub(r'(\.mp4)\..*$', r'\1', mp4_file_key)
+    def _get_video_path(self, sample, s3_bucket='moe-checkpoints'):
+        mp4_file_key = os.path.join("tianjie/ShareGPT4Video/zip_folder", sample['path'])
         local_video_path = os.path.join(self.local_cache_dir, os.path.basename(mp4_file_key))
         self.s3_client.download_file(s3_bucket, mp4_file_key, local_video_path)
 
@@ -206,30 +192,25 @@ class Panda(Dataset):
         ## get frames until success
         while True:
             index = index % len(self.metadata)
-            sample = self.metadata.iloc[index]
+            sample = self.metadata[index]
+
             try:
                 video_path = self._get_video_path(sample)
             except:
                 print(f"download sample failed! ({sample})")
                 index += 1
                 continue
-            ## video_path should be in the format of "....../WebVid/videos/$page_dir/$videoid.mp4"
-            caption = [cap.replace('<s>','') for cap in sample['captions']]
+            
             if self.load_raw_resolution:
                 video_reader = VideoReader(video_path, ctx=cpu(0))
             else:
-                video_reader = VideoReader(video_path, ctx=cpu(0), width=530, height=300)
+                video_reader = VideoReader(video_path, ctx=cpu(0), width=self.resolution[0], height=self.resolution[1])
             if len(video_reader) < self.video_length:
                 print(f"video length ({len(video_reader)}) is smaller than target length({self.video_length})")
                 index += 1
                 continue
             else:
                 pass
-            # except:
-            #     index += 1
-            #     print(f"Load video failed! path = {sample}")
-            #     continue
-
             
             fps_ori = int(video_reader.get_avg_fps())
             if self.fixed_fps is not None:
@@ -249,8 +230,8 @@ class Panda(Dataset):
                 else:
                     frame_stride = frame_num // self.video_length
                     required_frame_num = frame_stride * (self.video_length-1) + 1
-
-            max_round = len(caption)
+            captions = sample['captions']
+            max_round = len(captions)
             ## select a random clip
             # random_range = frame_num - required_frame_num
             # start_idx = random.randint(0, random_range) if random_range > 0 else 0
@@ -268,7 +249,7 @@ class Panda(Dataset):
                 index += 1
                 continue
         ## process data
-        batch = self.process_data(caption, frames, frame_stride, max_round)
+        batch = self.process_data(captions, frames, frame_stride, max_round)
 
         self.delete_files_in_folder()
 
