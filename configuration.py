@@ -151,7 +151,7 @@ class WorldModelConfig(PretrainedConfig):
             self.dynamicrafter_ckpt = dynamicrafter_ckpt
         if dynamicrafter is not None:
             self.dynamicrafter = dynamicrafter
-        if self.do_alignment and not do_alignment:
+        if do_alignment is not None:
             self.diffusion_model_hf_initialized = True
             self.do_alignment = do_alignment
         if self.learning_rate is not None:

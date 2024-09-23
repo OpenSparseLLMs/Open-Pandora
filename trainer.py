@@ -11,7 +11,7 @@ from DynamiCrafter.scripts.evaluation.inference import load_model_checkpoint, in
 from utils.utils_train import get_trainer_callbacks, get_trainer_logger, get_trainer_strategy
 from utils.utils_train import set_logger, init_workspace, load_checkpoints
 from utils.utils_data import DataModuleFromConfig
-from data.webvid_bot3 import Vimeo
+from data.webvid_bot3 import Vimeo, WebVid
 from data.openvid_s3 import OpenVid
 from model import load_wm
 # import debugpy
@@ -35,7 +35,7 @@ def get_parser(**parser_kwargs):
     parser.add_argument("--auto_resume_weight_only", action='store_true', default=False, help="resume from weight-only checkpoint")
     parser.add_argument("--debug", "-d", action='store_true', default=False, help="enable post-mortem debugging")
     parser.add_argument("--do_alignment", action='store_true', default=False, help="whether or not you do alignment training")
-    
+    parser.add_argument("--devices", type=int, default=1, help="Number of GPUs to use")
     return parser
 
 def setup_environment(args):
@@ -61,11 +61,12 @@ def configure_trainer(args, lightning_config, workdir, ckptdir, logger):
 
 def load_and_configure_model(config, args):
     model_config = config.pop("model", OmegaConf.create())
+    model_config['do_alignment'] = args.do_alignment
     model, processor = load_wm(repo_id=args.model_path, training_args=model_config)
     return model, processor
 
 def load_and_configure_data(config, processor, batch_size):
-    dataset = OpenVid(processor=processor, **config.data)
+    dataset = WebVid(processor=processor, **config.data)
     data_module = DataModuleFromConfig(batch_size=batch_size, train=dataset, num_workers=config.data.num_workers)
     return data_module
 
@@ -73,10 +74,9 @@ def main():
     parser = get_parser()
     args, unknown = parser.parse_known_args()
     configs = [OmegaConf.load(cfg) for cfg in args.base]
-    cli = OmegaConf.from_dotlist(unknown)
-    config = OmegaConf.merge(*configs, cli)
+    args_dict = vars(args)
+    config = OmegaConf.merge(*configs, args_dict)
     lightning_config = config.pop("lightning", OmegaConf.create())
-
     workdir, ckptdir, cfgdir, loginfo, logger = setup_environment(args)
     trainer = configure_trainer(args, lightning_config, workdir, ckptdir, logger)
     model, processor = load_and_configure_model(config, args)

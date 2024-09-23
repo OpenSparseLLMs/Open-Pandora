@@ -64,10 +64,10 @@ class WebVid(Dataset):
         self.tokenizer = processor['tokenizer']
 
         self.local_cache_dir = '/mnt/petrelfs/tianjie/projects/Datasets/video_cache/'
-        access_key = 'VVEGYBP0A4FFFPZDIUIC'
-        secret_key = 'XO3aoVDg4z2sJ8i8TDgDfnwReCJfdawLBgWPzwld'
+        access_key = 'KWPYSOIONY8RUTYTMBA2'
+        secret_key = 'HuKw9Un8BQqtmkmUAn53gBO2mOK1tUleqDVXzEEF'
+        endpoint_url='http://p-ceph-hdd2-outside.pjlab.org.cn'
         # vimeo
-        endpoint_url='http://10.135.7.249:80'
         self.torch_device = "cuda" if torch.cuda.is_available() else "cpu"
         self._load_metadata()
         os.makedirs(self.local_cache_dir,exist_ok=True)
@@ -136,9 +136,9 @@ class WebVid(Dataset):
 
 
 
-    def _get_video_path(self, sample, s3_bucket='WebVid10M'):
+    def _get_video_path(self, sample, s3_bucket='webvid10m'):
         s3_path = sample['id']
-        mp4_file_key = s3_path.replace(f"s3://{s3_bucket}/", "")
+        mp4_file_key = s3_path.replace(f"s3://WebVid10M/", "")
 
         local_video_path = os.path.join(self.local_cache_dir, os.path.basename(mp4_file_key))
         self.s3_client.download_file(s3_bucket, mp4_file_key, local_video_path)

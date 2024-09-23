@@ -9,7 +9,8 @@ from transformers.utils import logging
 from transformers import PreTrainedModel, Blip2QFormerModel, AutoModelForCausalLM
 from transformers import  CLIPTextConfig, CLIPTextModel
 from transformers.modeling_outputs import  BaseModelOutputWithPooling
-
+import torch.nn.functional as F
+from torch.nn import MSELoss
 from transformers.models.clip.modeling_clip import CLIPTextTransformer
 import sys
 from einops import rearrange
@@ -34,6 +35,8 @@ from transformers import logging
 logging.set_verbosity_error()
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from functools import partial
+from pytorch_lightning.utilities import rank_zero_only
+
 ckpt = torch.utils.checkpoint.checkpoint
 _make_causal_mask = AttentionMaskConverter._make_causal_mask
 
@@ -103,12 +106,12 @@ def freeze_sub_models(function):
         model = function(*args, **kwargs)
         model.train()
         if model.config.freeze_video_model:
-            # model.video_model.eval()
+            model.video_model.eval()
 
             for param in model.video_model.parameters():
                 param.requires_grad = False
 
-        if model.config.use_diffusion_text_encoder and model.config.freeze_diffusion_text_encoder:
+        if model.config.do_alignment:
             model.diffusion_text_encoder.eval()
 
             for param in model.diffusion_text_encoder.parameters():
@@ -168,8 +171,9 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         if config.use_image_callbacks:
             self.diffusion_original_text_encoder = CLIPTextModel.from_pretrained(config.diffusion_model_name_or_path, subfolder="text_encoder")
             self.diffusion_tokenizer = CLIPTokenizer.from_pretrained(config.diffusion_model_name_or_path,subfolder='tokenizer')
-        if config.use_diffusion_text_encoder:
-            self.diffusion_text_encoder = CLIPTextEmbeddingModel(config.diffusion_text_encoder_config)
+        if config.do_alignment:
+            from lvdm.modules.encoders.condition import FrozenOpenCLIPEmbedder
+            self.diffusion_text_encoder = FrozenOpenCLIPEmbedder(layer="penultimate", freeze=True)
 
         self.post_init()
         
@@ -489,25 +493,26 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         ## x: b c t h w
         diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
         llm_cond_emb = diffusion_conditioning[-1:]
-        clip_cond_emb = self.diffusion_model.cond_stage_model(caption)
+        clip_cond_emb = self.diffusion_text_encoder(caption)
 
         # KLDivLoss
-        # kl_loss = nn.KLDivLoss(reduction='batchmean')
+        log_llm_cond_emb = torch.log_softmax(llm_cond_emb, dim=-1)
+        clip_cond_emb_probs = torch.softmax(clip_cond_emb, dim=-1)
 
-        # log_llm_cond_emb = torch.log(llm_cond_emb)
-        # loss = kl_loss(log_llm_cond_emb, clip_cond_emb)
+        kl_loss = nn.KLDivLoss(reduction='batchmean')
+        loss = kl_loss(log_llm_cond_emb, clip_cond_emb_probs)
 
         # MSELoss
-        mse_loss = torch.nn.MSELoss()
+        # mse_loss = torch.nn.MSELoss()
         
-        loss = mse_loss(llm_cond_emb, clip_cond_emb)
+        # loss = mse_loss(llm_cond_emb, clip_cond_emb)
 
         return loss, {"loss":loss}
   
     
     def training_step(self, batch, batch_idx):
-        if batch_idx%200==0:
-            print(self.image_prefix.weight)
+        # if batch_idx%200==0:
+        #     print(self.image_prefix.weight)
         if not self.config.do_alignment:
 
             x, c, fs = self.get_batch_input(**batch, random_uncond=False)
@@ -523,12 +528,12 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
 
         return loss
     
-    def on_before_optimizer_step(self, optimizer):
-        # Compute the 2-norm for each layer
-        # If using mixed precision, the gradients are already unscaled here
-        norms = grad_norm(self.diffusion_model.model.diffusion_model, norm_type=2)
-
-        self.log_dict(norms)
+    # def on_before_optimizer_step(self, optimizer):
+    #     # Compute the 2-norm for each layer
+    #     # If using mixed precision, the gradients are already unscaled here
+    #     import deepspeed
+    #     norms = deepspeed.utils.safe_get_full_grad(self.image_prefix, norm_type=2)
+    #     self.log_dict(norms)
 
     def configure_optimizers(self):
         
@@ -551,12 +556,13 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         
         ## optimizer
         optimizer = torch.optim.AdamW(params, lr=lr)
+        
+        if self.config.do_alignment:
+            logger.info("Setting up scheduler...")
+            T_max = self.trainer.max_steps  # 根据训练的最大epochs设置T_max
+            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max, eta_min=1e-6)
 
-        ## lr scheduler
-        # if self.use_scheduler:
-        #     logger.info("Setting up scheduler...")
-        #     lr_scheduler = self.configure_schedulers(optimizer)
-        #     return [optimizer], [lr_scheduler]
+            return [optimizer], [{'scheduler': lr_scheduler, 'interval': 'step', 'frequency': 1}]
         
         return optimizer
     
