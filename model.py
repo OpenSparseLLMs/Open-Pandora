@@ -58,13 +58,11 @@ def load_wm(repo_id,training_args=None, model=None):
     if training_args is not None:
         config.reset_training_args(
             do_alignment=training_args.do_alignment,
-            dynamicrafter=training_args.dynamicrafter_config,
             learning_rate=training_args.learning_rate
             )
     else:
         config.reset_training_args(
             do_alignment=False,
-            dynamicrafter='./DynamiCrafter/configs/inference_1024_v1.0.yaml',
             )
         
     if model == None:
@@ -282,8 +280,9 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         z = model.encode_first_stage(x)
         z = rearrange(z, '(b t) c h w -> b c t h w', b=b, t=t)
         if t == 1:
-            zero_pad = repeat(torch.zeros_like(z), 'b c t h w -> b c (repeat t) h w', repeat=3)
-            z = torch.cat([z, zero_pad], dim=2)
+            # zero_pad = repeat(torch.zeros_like(z), 'b c t h w -> b c (repeat t) h w', repeat=3)
+            # z = torch.cat([z, zero_pad], dim=2)
+            z = repeat(z, 'b c t h w -> b c (repeat t) h w', repeat=4)
         z = repeat(z, 'b c t h w -> b c (repeat t) h w', repeat=4)
         return z
 
