@@ -1,0 +1,42 @@
+model:
+  pretrained_checkpoint: null
+  dynamicrafter_config: ./DynamiCrafter/configs/inference_512_v1.0.yaml
+  learning_rate: 1.0e-05
+  do_alignment: false
+  monitor: val/rec_loss
+
+data:
+  data_dir: /nvme/tianjie/bucket/tianjie/WebVid
+  meta_path: /mnt/petrelfs/share_data/maxin/datasets/webvid/aes_4plus_sub_files_128/
+  video_length: 20 # pre frame + target frame (4 + 16)
+  frame_stride: 6
+  load_raw_resolution: true
+  resolution: [320, 512]
+  spatial_transform: resize_center_crop
+  random_fs: true  ## if true, we uniformly sample fs with max_fs=frame_stride (above)
+  batch_size: 1
+  num_workers: 8
+
+lightning:
+  precision: 16-mixed
+  strategy: ddp
+  trainer:
+    benchmark: True
+    accumulate_grad_batches: 1
+    max_steps: 2000000
+    max_epochs: 4
+    # logger
+    log_every_n_steps: 50
+    # val
+    val_check_interval: 0.5
+    gradient_clip_algorithm: 'norm'
+    gradient_clip_val: 0.5
+    num_nodes: 1
+  callbacks:
+    model_checkpoint:
+      target: pytorch_lightning.callbacks.ModelCheckpoint
+      params:
+        every_n_train_steps: 20000 
+        filename: "{epoch}-{step}"
+        save_weights_only: True
+        save_top_k: 1
