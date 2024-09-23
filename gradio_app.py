@@ -4,6 +4,7 @@ os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 import torch
 import gradio as gr
+from PIL import Image
 from model import ChatWM, load_wm
 
 from argparse import ArgumentParser
@@ -11,6 +12,8 @@ from argparse import ArgumentParser
 # debugpy.listen(address=('0.0.0.0',7678))
 # debugpy.wait_for_client()
 torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+default_image = Image.open('examples/car.png')
+default_text = 'The car moves forward.'
 
 def parse_args():
     ''''input parameters'''
@@ -76,14 +79,14 @@ def init_sliders():
         value=2,
         step=1,
         interactive=True,
-        label="round",
+        label="Round",
     )
     return fs, n_samples, unconditional_guidance_scale, ddim_steps, ddim_eta, num_round
 
 def gradio_reset():
     return (
         gr.update(interactive=True, value='💭 Action 1'), #button
-        gr.update(interactive=False, value='💭 Action 2'),
+        gr.update(interactive=False,value='💭 Action 2'),
         gr.update(interactive=False,value='💭 Action 3'),
         gr.update(interactive=False,value='💭 Action 4'),
         gr.update(interactive=False,value='💭 Action 5'),
@@ -112,7 +115,7 @@ if args.ckpt_path:
     repo_id = args.ckpt_path
 else:
     repo_id = find_latest_checkpoint()
-ckpt_name = repo_id.split('/')[-1]
+ckpt_name = os.path.basename(repo_id.strip('/'))
 
 if args.debug:
     model = None
@@ -124,21 +127,12 @@ if args.debug:
 else:
     model, processor = load_wm(repo_id =repo_id)
     model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-    # pretrained_ckpt = '/mnt/petrelfs/share_data/quxiaoye/models/DynamiCrafter_1024/model.ckpt'
-    # model_state = torch.load(pretrained_ckpt, weights_only=False)['state_dict']
-    # model_state = {'qdiffusion_model.'+k:v for k,v in model_state.items()}
-    # model.load_state_dict(model_state, strict=False)
-    # del model_state
-    # import pdb;pdb.set_trace()
-    # torch.save(model.state_dict(), '/mnt/petrelfs/tianjie/projects/Pandora/Open-Pandora/pytorch_model.bin')
-    # import pdb;pdb.set_trace()
+
 chatwm = ChatWM(model,processor)
 
-
-# title = """<h1 align="center"><a href="https://maitrix.org/"><img src="https://maitrix.org/assets/img/logo-title.png" alt="World Model" border="0" style="margin: 0 auto; height: 50px;" /></a> </h1>"""
 description = (
     """<br><a href='http://71.142.245.226:8583/'>
-    # Pandora
+    # Open-Pandora
     <img src='https://img.shields.io/badge/Github-Code-blue'></a><p>
     - Upload An Image
     - Press Generate
@@ -147,7 +141,6 @@ description = (
 
 demo = gr.Blocks(theme=gr.themes.Soft(primary_hue="slate",))
 with demo:
-    # gr.Markdown(title)
     gr.Markdown(description)
     if args.debug:
         gr.Markdown("***Debug Mode, No Model loaded***")
@@ -155,9 +148,9 @@ with demo:
     gr.Markdown(f"Current checkpoint: {ckpt_name}")
     with gr.Tabs():
         with gr.Row():
-            with gr.Column(visible=True, scale=0.6)  as input_raws:
-                image_input = gr.Image(label='Current State',height=576,width=1024)
-                text_input = gr.Textbox(label='Text Control Action')
+            with gr.Column(visible=True, scale=65)  as input_raws:
+                image_input = gr.Image(default_image,label='Current State',width=1024,height=576)
+                text_input = gr.Textbox(default_text,label='Text Control Action')
                 with gr.Row():
                     round1_button = gr.Button("💭 Action 1",visible=True, interactive=True,variant="primary")
                     round2_button = gr.Button("💭 Action 2",visible=True, interactive=False,variant="primary")
@@ -169,28 +162,35 @@ with demo:
 
                 with gr.Row():
                     clear_button = gr.Button("Clear",visible=True, interactive=True)
-                gr.Markdown(" ")
-            with gr.Column(visible=True, scale=0.4)  as input_raws:
+
+            with gr.Column(visible=True, scale=35)  as input_raws:
                 fs, n_samples, unconditional_guidance_scale, ddim_steps, ddim_eta, num_round = init_sliders()
                 gr.Markdown(" ")
-        with gr.Row():
-            video_output_0 = gr.Video(width=512,height=320,label='Final Output')
-            video_output_1 = gr.Video(width=512,height=320, label='Action 1')
-            video_output_2 = gr.Video(width=512,height=320, label='Action 2')
-        with gr.Row():
-            video_output_3 = gr.Video(width=512,height=320, label='Action 3')
-            video_output_4 = gr.Video(width=512,height=320, label='Action 4')
-            video_output_5 = gr.Video(width=512,height=320, label='Action 5')
-        with gr.Row():
-            examples = gr.Examples(
-                examples=[
-                    ['examples/car.png', 'The car moves forward.'],
-                    ['examples/bench.png', 'Wind flows the leaves.'],
-                    ['examples/red_car.png', 'Explosion happens.'],
-                ],
-                inputs=[image_input, text_input, ddim_steps, fs, 
-                        n_samples,unconditional_guidance_scale, ddim_eta]
-            )
+                gr.Markdown(" ")
+                with gr.Row():
+                    examples = gr.Examples(
+                        examples=[
+                            ['examples/car.png', 'The car moves forward.'],
+                            ['examples/fuji.png', 'Camera zooms in.'],
+                            ['examples/astronaut.png', 'Astronaut playing a guitar.'],
+                        ],
+                        inputs=[image_input, text_input, ddim_steps, fs, 
+                                n_samples,unconditional_guidance_scale, ddim_eta]
+                    )
+        with gr.Column()  as input_raws:
+            gr.Markdown(" ")
+            with gr.Row():
+                video_output_0 = gr.Video(width=512,height=320,label='Final Output')
+                video_output_1 = gr.Video(width=512,height=320, label='Action 1')
+                video_output_2 = gr.Video(width=512,height=320, label='Action 2')
+
+        with gr.Column()  as input_raws:
+            gr.Markdown(" ")
+            with gr.Row():
+                video_output_3 = gr.Video(width=512,height=320, label='Action 3')
+                video_output_4 = gr.Video(width=512,height=320, label='Action 4')
+                video_output_5 = gr.Video(width=512,height=320, label='Action 5')
+
 
     video_output = [video_output_0, video_output_1, video_output_2, video_output_3, video_output_4, video_output_5]
     button_output = [round1_button,round2_button,round3_button,round4_button,round5_button, multi_button]
