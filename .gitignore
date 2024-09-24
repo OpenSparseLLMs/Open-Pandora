@@ -10,6 +10,7 @@ scripts/
 local/
 video_output/*
 Open-Pandora/
+Open-PandoraPro/
 data/webvid_origin.py
 data/mira.py
 data/panda.py
