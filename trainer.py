@@ -15,9 +15,9 @@ from data.webvid_bot3 import Vimeo, WebVid
 from data.openvid_s3 import OpenVid
 from data.panda import Panda
 from model import load_wm
-# import debugpy
-# debugpy.listen(address=('0.0.0.0',7678))
-# debugpy.wait_for_client()
+import debugpy
+debugpy.listen(address=('0.0.0.0',7678))
+debugpy.wait_for_client()
 
 torch.set_float32_matmul_precision('medium')
 

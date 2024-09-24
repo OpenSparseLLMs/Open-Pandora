@@ -15,7 +15,7 @@ data:
   random_fs: false  ## if true, we uniformly sample fs with max_fs=frame_stride (above)
   fixed_fps: 8
   batch_size: 1
-  num_workers: 8
+  num_workers: 1
 
 lightning:
   precision: 16-mixed
@@ -31,7 +31,7 @@ lightning:
     val_check_interval: 0.5
     gradient_clip_algorithm: 'norm'
     gradient_clip_val: 0.5
-    num_nodes: 8
+    num_nodes: 1
   callbacks:
     model_checkpoint:
       target: pytorch_lightning.callbacks.ModelCheckpoint
