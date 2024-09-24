@@ -6,7 +6,7 @@
     <a href="https://huggingface.co/Tuyabei/Open-Pandora"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue"></a>
 </div>
 
-<h2 align="center"> Open-Pandora: An Open Source Pandora Replication</h2>
+<h2 align="center"> Open-Pandora: An Open World video generation model</h2>
 
 
 Based on the [maitrix-org/Pandora](https://github.com/maitrix-org/Pandora) project on GitHub, we have open-sourced the training code and models for the Pandora project. The training process includes two main stages: alignment and finetuning. Additionally, we have released the latest Pandora model weights, which were trained for 60w steps on the [Webvid](https://huggingface.co/datasets/TempoFunk/webvid-10M) dataset.
@@ -16,27 +16,40 @@ Based on the [maitrix-org/Pandora](https://github.com/maitrix-org/Pandora) proje
 ## Demo
 You can control the model in real-time using text, currently supporting 5 rounds of autoregressive prediction to generate 10-second videos. Alternatively, you can generate a single video with the following effects:
 
+### Results with a resolution of <u>320×512</u>.
+
 | **2s 320×512** | **2s 320×512** | **2s 320×512** |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img src="assets/examples/leaf.gif" width="248"> | <img src="assets/examples/red_car.gif" width="248"> | <img src="assets/examples/landspace.gif" width="248"> |
+| <img src="assets/examples/512/leaf.gif" width="248"> | <img src="assets/examples/512/red_car.gif" width="248"> | <img src="assets/examples/512/landspace.gif" width="248"> |
 | Wind flows the leaves. | The red car moves along the path. | Green hills of tuscany, italy, time-lapse. |
-| <img src="assets/examples/car.gif" width="248"> | <img src="assets/examples/fire.gif" width="248"> | <img src="assets/examples/pour_honey.gif" width="248"> |
+| <img src="assets/examples/512/car.gif" width="248"> | <img src="assets/examples/512/fire.gif" width="248"> | <img src="assets/examples/512/pour_honey.gif" width="248"> |
 | The car moves forward. | A bonfire is lit in the middle of a field. | Pouring honey onto some slices of bread. |
 
+### Results with a resolution of <u>576×1024</u>.
+
+| **2s 576×1024** | **2s 576×1024** |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | 
+| <img src="assets/examples/1024/sailboat.gif" width="387"> | <img src="assets/examples/1024/women.gif" width="387"> |
+| A sailboat sailing in rough seas with a dramatic sunset  | Two young women studying in a library. |
+| <img src="assets/examples/1024/cow.gif" width="387"> | <img src="assets/examples/1024/eagle.gif" width="387"> |
+| A brown and white cow eating hay. | A bald eagle flying over a tree filled forest. |
+| <img src="assets/examples/1024/eggs.gif" width="387"> | <img src="assets/examples/1024/lake.gif" width="387"> |
+| Two eggs are fried in a frying pan on the stove. | A boat sits on the shore of a lake with mt fuji in the background, camera zooms in. |
 ## News
-- __[2024/09/02]__ 🎉 We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
-- __[2024/09/02]__ 🎉 The training code for the alignment and finetuning stages is available.
+- __[2024/09/24]__ 🎉 We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
+- __[2024/09/24]__ 🎉 The training code for the alignment and finetuning stages is available.
+- __[2024/09/24]__ 🎉 Supports video output at 576×1024 resolution.
 
 ## Setup
 ```shell
-conda create -n pandora python=3.12.3 nvidia/label/cuda-12.1.0::cuda-toolkit -y
+conda create -n pandora python=3.11.0 nvidia/label/cuda-12.1.0::cuda-toolkit -y
 conda activate pandora
 pip install torch torchvision torchaudio
 bash build_envs.sh  
 ```
 If your GPU doesn't support CUDA 12.1, you can also install with CUDA 11.8:
 ```shell
-conda create -n pandora python=3.12.3 nvidia/label/cuda-11.8.0::cuda-toolkit -y 
+conda create -n pandora python=3.11.0 nvidia/label/cuda-11.8.0::cuda-toolkit -y 
 conda activate pandora
 pip install torch torchvision torchaudio
 bash build_envs.sh  
