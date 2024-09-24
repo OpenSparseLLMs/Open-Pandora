@@ -101,13 +101,11 @@ class Panda(Dataset):
 
     def dynamic_resize(self, img):
         '''resize frames'''
-        width, height = img.size
-        t_width, t_height = self.resolution
-        k = min(t_width/width, t_height/height)
-        new_width, new_height = int(width*k), int(height*k)
-        pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
-        trans = transforms.Compose([transforms.Resize((new_height, new_width),antialias=True),
-                                    transforms.Pad(pad)])
+        width, height = self.resolution
+        trans = transforms.Compose([
+                transforms.Resize(min((height, width))),
+                transforms.CenterCrop((height, width))
+                ])
         return trans(img)
 
     def process_multi_round_img(self, frames, round):
@@ -146,8 +144,8 @@ class Panda(Dataset):
         metadata_ = [ json.loads(i) for i in open(self.meta_path) ]
         metadata = []
         for content in metadata_:
-            dataset_name, video_name = meta_path['video_path'].split('/')
-            content["path"] = dataset_name + '/' + content['zip_folder'].strip['.zip']+'/' +video_name 
+            dataset_name, video_name = content['video_path'].split('/')
+            content["path"] = dataset_name + '/' + content['zip_folder'].replace('.zip','')+'/' +video_name 
             metadata.append(content)
 
         print(f'>>> {len(metadata)} data samples loaded.')
@@ -235,7 +233,7 @@ class Panda(Dataset):
             ## select a random clip
             # random_range = frame_num - required_frame_num
             # start_idx = random.randint(0, random_range) if random_range > 0 else 0
-
+            
             ## calculate frame indices
             assert max_round*2*fps_ori<=frame_num, print(f"The total num of frame is {frame_num}, but the max_round is {max_round},frame_stride:{frame_stride},fps_ori:{fps_ori}")
             start_idx_list = [i*2*fps_ori for i in range(max_round) ]
@@ -283,7 +281,7 @@ class Panda(Dataset):
 
         target_frames = (target_frames / 255 - 0.5) * 2
 
-        video_batch = {'video': target_frames,'frame_stride': frame_stride}
+        video_batch = {'video': target_frames,'fps': frame_stride}
 
         batch.update(video_batch)
 
