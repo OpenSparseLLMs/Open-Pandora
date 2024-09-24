@@ -1,13 +1,13 @@
 model:
   pretrained_checkpoint: null
   dynamicrafter_config: ./DynamiCrafter/configs/inference_512_v1.0.yaml
-  learning_rate: 5.0e-05
+  learning_rate: 1.0e-05
   do_alignment: false
   monitor: val/rec_loss
 
 data:
-  data_dir: /nvme/tianjie/bucket/tianjie/OpenVid-1M
-  meta_path: /mnt/petrelfs/tianjie/projects/Datasets/OpenVid/metadata_filted.csv
+  data_dir: your data dir
+  meta_path: your metadata path
   video_length: 20 # pre frame + target frame (4 + 16)
   frame_stride: 6
   load_raw_resolution: true
@@ -36,7 +36,7 @@ lightning:
     model_checkpoint:
       target: pytorch_lightning.callbacks.ModelCheckpoint
       params:
-        every_n_train_steps: 5000 
+        every_n_train_steps: 10000 
         filename: "{epoch}-{step}"
         save_weights_only: True
         save_top_k: 1
