@@ -5,8 +5,8 @@ model:
   monitor: val/rec_loss
 
 data:
-  data_dir: /nvme/tianjie/bucket/tianjie/OpenVid-1M
-  meta_path: /mnt/petrelfs/tianjie/projects/Datasets/ShareGPT4Video/sharegpt4video_19k.jsonl
+  data_dir: your data dir
+  meta_path: your metadata path
   video_length: 16 # pre frame + target frame (4 + 16)
   frame_stride: 1
   load_raw_resolution: true

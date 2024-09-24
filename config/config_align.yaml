@@ -6,8 +6,8 @@ model:
   monitor: val/rec_loss
 
 data:
-  data_dir: /nvme/tianjie/bucket/tianjie/WebVid
-  meta_path: /mnt/petrelfs/share_data/maxin/datasets/webvid/aes_4plus_sub_files_128/
+  data_dir: your data dir
+  meta_path: your metadata path
   video_length: 20 # pre frame + target frame (4 + 16)
   frame_stride: 6
   load_raw_resolution: true
