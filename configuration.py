@@ -25,6 +25,7 @@ class WorldModelConfig(PretrainedConfig):
             train_diffusion_cross_attn=False,
             do_alignment=False,
             learning_rate=1e-5,
+            scheduler_config=None,
             use_image_callbacks=True,
             use_image_tokenizer=False,
             image_vocab_size=1024,
@@ -103,6 +104,7 @@ class WorldModelConfig(PretrainedConfig):
         self.use_instructpix2pix = use_instructpix2pix
         self.freeze_diffusion_qformer = freeze_diffusion_qformer
         self.learning_rate = learning_rate
+        self.scheduler_config = scheduler_config
 
         self.use_flash_attn = use_flash_attn
 
@@ -122,6 +124,7 @@ class WorldModelConfig(PretrainedConfig):
         dynamicrafter_ckpt=None,
         dynamicrafter=None,
         learning_rate=None,
+        scheduler_config=None,
         use_flash_attn=None,
     ):
         if freeze_video_model is not None:
@@ -153,6 +156,8 @@ class WorldModelConfig(PretrainedConfig):
             self.do_alignment = do_alignment
         if self.learning_rate is not None:
             self.learning_rate = learning_rate
+        if self.scheduler_config is not None:
+            self.scheduler_config = scheduler_config
 
         if use_flash_attn is not None:
             self.use_flash_attn = use_flash_attn

@@ -219,7 +219,7 @@ class ChatUniViMetaForCausalLM(ABC):
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, attention_mask, past_key_values, labels, images  # ([1, 3, 224, 224])
     ):
-        IMAGE_TOKEN_INDEX = self.config.vocab_size-2
+        IMAGE_TOKEN_INDEX = self.config.vocab_size
         vision_tower = self.get_vision_tower()
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             if past_key_values is not None and vision_tower is not None and images is not None and input_ids.shape[1] == 1:
