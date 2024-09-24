@@ -432,9 +432,9 @@ import sys
 from einops import rearrange
 from configuration import WorldModelConfig
 from typing import Optional, Tuple, Union, List, Dict
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoConfig
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, CLIPTokenizer
-
+from pytorch_lightning.utilities import grad_norm
 from ChatUniVi.constants import DEFAULT_IMAGE_TOKEN
 from ChatUniVi.model import ChatUniViLlamaForCausalLM, ChatUniViConfig
 import pytorch_lightning as pl  
@@ -450,6 +450,8 @@ from einops import repeat
 from transformers import logging
 logging.set_verbosity_error()
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
+from functools import partial
+ckpt = torch.utils.checkpoint.checkpoint
 _make_causal_mask = AttentionMaskConverter._make_causal_mask
 
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
@@ -458,7 +460,7 @@ IMAGE_PREFIX_TOKEN = "[IMG_P]"
 torch_device = "cuda" if torch.cuda.is_available() else "cpu"
 
 logger = logging.get_logger(__name__)
-
+logger.setLevel(logging.INFO)
 
 def load_wm(repo_id,training_args=None, model=None):
     '''load model, image processor and tokenizer'''
@@ -470,20 +472,16 @@ def load_wm(repo_id,training_args=None, model=None):
     if training_args is not None:
         config.reset_training_args(
             do_alignment=training_args.do_alignment,
-            dynamicrafter=training_args.dynamicrafter_config,
             learning_rate=training_args.learning_rate
             )
     else:
         config.reset_training_args(
             do_alignment=False,
-            dynamicrafter='./DynamiCrafter/configs/inference_1024_v1.0.yaml',
             )
         
     if model == None:
         model = WorldModel.from_pretrained(repo_id, config=config, ignore_mismatched_sizes=True)
-        # model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
-    # model loaded
-    
+
     # load image processors
     image_processor = model.video_model.get_vision_tower().image_processor
     diffusion_image_processor= transforms.Compose([
@@ -501,15 +499,13 @@ def load_wm(repo_id,training_args=None, model=None):
     }
     return model, processor
 
+
 def dynamic_resize(img):
     '''resize frames'''
-    width, height = img.size
-    t_width, t_height = 512, 320
-    k = min(t_width/width, t_height/height)
-    new_width, new_height = int(width*k), int(height*k)
-    pad = (t_width-new_width)//2, (t_height-new_height)//2, (t_width-new_width+1)//2, (t_height-new_height+1)//2, 
-    trans = transforms.Compose([transforms.Resize((new_height, new_width)),
-                                transforms.Pad(pad)])
+    trans = transforms.Compose([
+            transforms.Resize(min((576, 1024))),
+            transforms.CenterCrop((576, 1024))
+            ])
     return trans(img)
 
 
@@ -517,17 +513,29 @@ def dynamic_resize(img):
 def freeze_sub_models(function):
     def wrapper(*args, **kwargs):
         model = function(*args, **kwargs)
+        model.train()
         if model.config.freeze_video_model:
+            # model.video_model.eval()
+
             for param in model.video_model.parameters():
                 param.requires_grad = False
 
         if model.config.use_diffusion_text_encoder and model.config.freeze_diffusion_text_encoder:
+            model.diffusion_text_encoder.eval()
+
             for param in model.diffusion_text_encoder.parameters():
                 param.requires_grad = False
+
         if model.config.use_image_callbacks:
             for param in model.diffusion_original_text_encoder.parameters():
                 param.requires_grad = False
+
         if model.config.freeze_diffusion_qformer:
+            model.diffusion_qformer.eval()
+            model.diffusion_qformer_proj.eval()
+            model.diffusion_query_tokens.eval()
+            model.diffusion_proj.eval()
+
             for param in model.diffusion_qformer.parameters():
                 param.requires_grad = False
             for param in model.diffusion_qformer_proj.parameters():
@@ -584,7 +592,6 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         if not config.do_alignment:
             model_config = OmegaConf.load(config.dynamicrafter)
             model_config = model_config.pop("model", OmegaConf.create())
-            model_config['params']['unet_config']['params']['use_checkpoint'] = False
             self.diffusion_model = instantiate_from_config(model_config)
             self.diffusion_model.perframe_ae = True
             # load_model_checkpoint(self.diffusion_model, config.dynamicrafter_ckpt)
@@ -683,8 +690,9 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         z = model.encode_first_stage(x)
         z = rearrange(z, '(b t) c h w -> b c t h w', b=b, t=t)
         if t == 1:
-            zero_pad = repeat(torch.zeros_like(z), 'b c t h w -> b c (repeat t) h w', repeat=3)
-            z = torch.cat([z, zero_pad], dim=2)
+            # zero_pad = repeat(torch.zeros_like(z), 'b c t h w -> b c (repeat t) h w', repeat=3)
+            # z = torch.cat([z, zero_pad], dim=2)
+            z = repeat(z, 'b c t h w -> b c (repeat t) h w', repeat=4)
         z = repeat(z, 'b c t h w -> b c (repeat t) h w', repeat=4)
         return z
 
@@ -787,7 +795,11 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         img_feat_num = self.config.image_prefix_length if self.config.use_image_prefix else self.config.num_query_tokens
 
         assert input_ids[0][-1] == tokenizer.image_prefix_token_id
-            
+
+        # print("use FrozenOpenCLIPEmbedder")
+        # caption = tokenizer.decode(input_ids[0],skip_special_tokens=True)
+        # diffusion_conditioning = self.diffusion_model.cond_stage_model(caption) 
+
         diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
         diffusion_conditioning = diffusion_conditioning[-1:] # Only generate last video
 
@@ -817,6 +829,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         diffusion_pixel_values: torch.FloatTensor = None,
         diffusion_cond_image: torch.FloatTensor = None,
         attention_mask: Optional[torch.LongTensor] = None,
+        fps=None,
         frame_stride=None,
         random_uncond=True,
         **kwargs
@@ -827,7 +840,11 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         pixel_values = pixel_values[0]
         diffusion_cond_image = diffusion_cond_image[0]
         
-        assert input_ids[0][-1] == 32001
+        try:
+            assert input_ids[0][-1] == 32001
+        except AssertionError:
+            print("Assertion failed. The value of input_ids[0] is:")
+            print(input_ids[0])
         ## x: b c t h w
         x = self.get_input(video)
         z = self.diffusion_model.encode_first_stage(x)
@@ -844,7 +861,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         input_mask = 1 - rearrange((random_num >= self.diffusion_model.uncond_prob).float() * (random_num < 3 * self.diffusion_model.uncond_prob).float(), "n -> n 1 1 1")
 
         null_prompt = self.diffusion_model.get_learned_conditioning([""])
-        prompt_imb = torch.where(prompt_mask, null_prompt, cond_emb)
+        prompt_emb = torch.where(prompt_mask, null_prompt, cond_emb.detach())
 
         img = diffusion_cond_image[0]
         img = input_mask * img
@@ -856,9 +873,9 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
             ## encode video frames x to z via a 2D encoder        
             img_cat_cond = self.get_latent_z(self.diffusion_model, diffusion_pixel_values)
             cond["c_concat"] = [img_cat_cond] # b c t h w
-        cond["c_crossattn"] = [torch.cat([prompt_imb, img_emb], dim=1)] ## concat in the seq_len dim
-
-        out = [z, cond, frame_stride]
+        cond["c_crossattn"] = [torch.cat([prompt_emb, img_emb], dim=1)] ## concat in the seq_len dim
+        
+        out = [z, cond, fps]
         
         return out
     
@@ -885,7 +902,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         ## x: b c t h w
         diffusion_conditioning = self.get_diffusion_conditioning(input_ids, pixel_values, attention_mask, True, None, None)
         llm_cond_emb = diffusion_conditioning[-1:]
-        clip_cond_emb = self.cond_stage_model(caption)
+        clip_cond_emb = self.diffusion_model.cond_stage_model(caption)
 
         # KLDivLoss
         # kl_loss = nn.KLDivLoss(reduction='batchmean')
@@ -899,44 +916,43 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         loss = mse_loss(llm_cond_emb, clip_cond_emb)
 
         return loss, {"loss":loss}
-    
-
-    def shared_step(self, batch, random_uncond, **kwargs):
-
-        x, c, fs = self.get_batch_input(**batch, random_uncond=random_uncond, return_fs=True)
-        kwargs.update({"fs": fs.long()})
-        loss, loss_dict = self.diffusion_model(x, c, **kwargs)
-
-        return loss, loss_dict    
+  
     
     def training_step(self, batch, batch_idx):
-
         if not self.config.do_alignment:
-            loss, loss_dict = self.shared_step(batch, random_uncond=self.diffusion_model.classifier_free_guidance)
+
+            x, c, fs = self.get_batch_input(**batch, random_uncond=False)
+
+            kwargs= {"fs": fs.long()}
+            loss, loss_dict = self.diffusion_model(x, c, **kwargs)
 
         else:
             loss, loss_dict = self.alignment_forward(**batch)
-
         ## sync_dist | rank_zero_only 
+        # loss_dict.update({"global_step": int(self.global_step)})
         self.log_dict(loss_dict, prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=False)
 
         return loss
     
+    def on_before_optimizer_step(self, optimizer):
+        # Compute the 2-norm for each layer
+        # If using mixed precision, the gradients are already unscaled here
+        norms = grad_norm(self.diffusion_model.model.diffusion_model, norm_type=2)
+
+        self.log_dict(norms)
+
     def configure_optimizers(self):
-        """ configure_optimizers for LatentDiffusion """
+        
         lr = self.config.learning_rate
         params = list()
         if not self.config.do_alignment:
             params = list(self.diffusion_model.model.parameters())
-            # params = list(self.video_model.model.parameters())
-        #stage 1
-        params.extend(list(self.image_prefix.parameters()))
-        params.extend(list(self.diffusion_qformer_proj.parameters()))
-        params.extend(list(self.diffusion_qformer.parameters()))
-        params.extend(list(self.diffusion_proj.parameters()))
+
         params.append(self.diffusion_query_tokens)
-        #stage 2
-        logger.info(f"@Training [{len(params)}] Full Paramters.")
+        params.extend(self.image_prefix.parameters())
+        params.extend(list(self.diffusion_proj.parameters()))
+        params.extend(list(self.diffusion_qformer.parameters()))
+        params.extend(list(self.diffusion_qformer_proj.parameters()))
         
         ## optimizer
         optimizer = torch.optim.AdamW(params, lr=lr)
@@ -957,7 +973,7 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
         return {"image":batch["pixel_values"]}
 
 class ChatWM():
-    def __init__(self, model, processor, training_args=None):
+    def __init__(self, model, processor, training_args=None, video_path=None):
         self.model = model
         self.image_processor = processor['image_processor']
         self.diffusion_image_processor = processor['diffusion_image_processor']
@@ -993,11 +1009,10 @@ class ChatWM():
         self.current_round = 1
         if self.model == None: # debug mode
             return self.video_path[0]
-         
         self.text = self.tokenizer.bos_token + "<image> " + text_input + "[IMG_P]" * 64
         
-        if type(image) == np.ndarray:
-            image = Image.fromarray(image)
+        # if type(image) == np.ndarray:
+        #     image = Image.fromarray(image) # <class 'numpy.ndarray'> -> <class 'PIL.Image.Image'>
         batch = self.tokenizer(self.text, return_tensors="pt", add_special_tokens=False)
         batch.update(self.process_img(image))
         batch = {k: v.to(torch_device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
@@ -1148,7 +1163,8 @@ class ChatWM():
     
     def process_img(self, image):
         pixel_values = self.image_processor(images=image, return_tensors="pt").pixel_values.to(torch_device)
-        diffusion_pixel_values = self.diffusion_image_processor(dynamic_resize(image).convert('RGB')).unsqueeze(1)
+        resized_img = dynamic_resize(Image.fromarray(image)) #(4400, 2750, 3) -> 576x1024
+        diffusion_pixel_values = self.diffusion_image_processor(resized_img).unsqueeze(1)
         diffusion_cond_image = diffusion_pixel_values.unsqueeze(0)[:, :, 0]
         return {'pixel_values':pixel_values.bfloat16(), 'diffusion_pixel_values':diffusion_pixel_values.bfloat16(), 'diffusion_cond_image':diffusion_cond_image.bfloat16()}
     

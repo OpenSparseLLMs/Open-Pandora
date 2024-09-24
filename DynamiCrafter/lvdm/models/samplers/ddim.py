@@ -168,7 +168,7 @@ class DDIMSampler(object):
         time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
         ### 2024.5.15 Guangyi adds two lines for gradio progress 
-        if 'gr_progress_bar' in kwargs.keys():
+        if 'gr_progress_bar' in kwargs.keys() and kwargs['gr_progress_bar'] is not None:
             iterator = kwargs['gr_progress_bar'].tqdm(time_range, desc=f'DDIM Sampler (Round {kwargs["round_info"][0]}/{kwargs["round_info"][1]})', total=total_steps)
         elif verbose:
             iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
