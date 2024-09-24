@@ -126,18 +126,6 @@ if args.debug:
     }
 else:
     model, processor = load_wm(repo_id =repo_id)
-    pretrained_ckpt = '/mnt/petrelfs/tianjie/projects/Pandora/output/align/checkpoints/epoch=0-step=320000.ckpt'
-    model_state = torch.load(pretrained_ckpt)['state_dict']
-    # target_key = ['diffusion_query_tokens', 'image_prefix.weight', 'diffusion_proj.weight', 'diffusion_proj.bias', 'diffusion_qformer_proj.weight', 'diffusion_qformer_proj.bias']
-    # target_state = {}
-    # for k,v in model_state.items():
-    #     if 'diffusion_qformer.' in k:
-    #         target_state[k] = v
-
-    #     elif k in target_key:
-    #         target_state[k] = v
-    # print(target_state.keys())
-    model.load_state_dict(model_state, strict=False)
     model = model.to(device=torch_device, dtype=torch.bfloat16).eval()
 
 chatwm = ChatWM(model,processor)
