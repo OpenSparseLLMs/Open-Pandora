@@ -35,9 +35,9 @@ You can control the model in real-time using text, currently supporting 5 rounds
 | The car moves forward. | A bonfire is lit in the middle of a field. | Pouring honey onto some slices of bread. |
 
 ## News
-- __[2024/09/02]__ 🎉 We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
-- __[2024/09/02]__ 🎉 The training code for the alignment and finetuning stages is available.
-- __[2024/09/23]__ 🎉 Supports video output at 576×1024 resolution.
+- __[2024/09/24]__ 🎉 We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
+- __[2024/09/24]__ 🎉 The training code for the alignment and finetuning stages is available.
+- __[2024/09/24]__ 🎉 Supports video output at 576×1024 resolution.
 
 ## Setup
 ```shell
