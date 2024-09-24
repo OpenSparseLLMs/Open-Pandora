@@ -103,3 +103,18 @@ The project is continuously improving, and we look forward to your contributions
 
 - **Repositories**: [maitrix-org/Pandora](https://github.com/maitrix-org/Pandora) 
 - **Related Article**: [Pandora: Towards General World Model with Natural Language Actions and Video States](https://world-model.maitrix.org/assets/pandora.pdf) 
+
+
+## Citation
+
+If you find our work useful in your research, please cite us using the following BibTeX entry:
+
+```bibtex
+@misc{OpenPandora2024,
+  author = {OpenSparseLLMs},
+  title = {{Open-Pandora: An Open World Video Generation Model}},
+  year = {2024},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/OpenSparseLLMs/Open-Pandora}},
+}
