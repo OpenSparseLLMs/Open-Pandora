@@ -29,11 +29,11 @@ You can control the model in real-time using text, currently supporting 5 rounds
 
 | **2s 576×1024** | **2s 576×1024** |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | 
-| <img src="assets/examples/1024/sailboat.gif" width="382"> | <img src="assets/examples/1024/women.gif" width="382"> |
+| <img src="assets/examples/1024/sailboat.gif" width="388"> | <img src="assets/examples/1024/women.gif" width="388"> |
 | A sailboat sailing in rough seas with a dramatic sunset  | Two young women studying in a library. |
-| <img src="assets/examples/1024/cow.gif" width="382"> | <img src="assets/examples/1024/eagle.gif" width="382"> |
+| <img src="assets/examples/1024/cow.gif" width="388"> | <img src="assets/examples/1024/eagle.gif" width="388"> |
 | A brown and white cow eating hay. | A bald eagle flying over a tree filled forest. |
-| <img src="assets/examples/1024/eggs.gif" width="382"> | <img src="assets/examples/1024/lake.gif" width="382"> |
+| <img src="assets/examples/1024/eggs.gif" width="388"> | <img src="assets/examples/1024/lake.gif" width="388"> |
 | Two eggs are fried in a frying pan on the stove. | A boat sits on the shore of a lake with mt fuji in the background, camera zooms in. |
 ## News
 - __[2024/09/24]__ 🎉 We have released the first version of the model weights, available on [Hugging Face](https://huggingface.co/Tuyabei/Open-Pandora). This model can be directly used for inference on the original Pandora project.
