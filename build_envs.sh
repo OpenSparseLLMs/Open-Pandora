@@ -9,4 +9,3 @@ pip install decord
 pip install tensorboard
 pip install numpy==1.26.4
 pip install deepspeed
-pip install -U xformers==0.0.24+cu118 --index-url https://download.pytorch.org/whl/cu118

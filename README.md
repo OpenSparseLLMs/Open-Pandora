@@ -45,6 +45,7 @@ You can control the model in real-time using text, currently supporting 5 rounds
 conda create -n pandora python=3.11.0
 conda activate pandora
 conda install pytorch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 pytorch-cuda=12.1 -c pytorch -c nvidia
+pip install -U xformers==0.0.24+cu121 --index-url https://download.pytorch.org/whl/cu121
 bash build_envs.sh  
 ```
 If your GPU doesn't support CUDA 12.1, you can also install with CUDA 11.8:
@@ -52,6 +53,7 @@ If your GPU doesn't support CUDA 12.1, you can also install with CUDA 11.8:
 conda create -n pandora python=3.11.0
 conda activate pandora
 conda install pytorch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 pytorch-cuda=11.8 -c pytorch -c nvidia
+pip install -U xformers==0.0.24+cu118 --index-url https://download.pytorch.org/whl/cu118
 bash build_envs.sh  
 ```
 
