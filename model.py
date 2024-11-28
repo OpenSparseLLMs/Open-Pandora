@@ -1,3 +1,4 @@
+import os
 import torch
 from torch import nn
 import transformers
@@ -469,7 +470,7 @@ def load_wm(repo_id,training_args=None, model=None):
     '''load model, image processor and tokenizer'''
     
     ckpt_name = repo_id.split('/')[-1]
-    print(f"Start to load model, current ckpt is: {ckpt_name}")
+    print(f"Start to load model, current ckpt is: {repo_id}")
     config = WorldModelConfig.from_pretrained(repo_id)
     
     if training_args is not None:
@@ -588,7 +589,6 @@ class WorldModel(PreTrainedModel, pl.LightningModule):
             self.diffusion_text_encoder = FrozenOpenCLIPEmbedder(layer="penultimate", freeze=True)
 
         self.post_init()
-        
         self.video_model = AutoModelForCausalLM.from_pretrained(config.video_model_name_or_path, config=video_model_config)
         for module in self.video_model.modules():
             module._is_hf_initialized = True
@@ -1002,7 +1002,7 @@ class ChatWM():
         self.video_path = [f'./video_output/video_output_gradio_round{i}_{uuid.uuid4()}.mp4' for i in range(10)]
         self.text_list = []
         self.config = training_args
-        
+        os.makedirs('./video_output', exist_ok=True)
 
     def generate_video(self, image, text_input, ddim_steps, fs, n_samples,
                        unconditional_guidance_scale, ddim_eta,

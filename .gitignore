@@ -18,3 +18,4 @@ data/openvid_s3.py
 data/t2v_datasets.py
 data/webvid_bot3.py
 mp42gif.py
+video_output/
